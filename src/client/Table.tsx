@@ -270,7 +270,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
   const rebuyCount = state.players.filter((p) => p.rebuyRequest || p.status === 'waiting').length;
 
   return (
-    <div className="table" ref={rootRef}>
+    <div className="table" ref={rootRef} style={{ '--n': denoms.length } as React.CSSProperties}>
       <canvas ref={canvasRef} className="scene" style={{ display: dom ? 'none' : undefined }} />
       <header className="table-top">
         <div>
@@ -330,9 +330,6 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
               <span className="muted">No chips yet</span>
             )}
           </div>
-          {strict && h && h.street !== 'showdown' && h.currentBet > 0 && (
-            <div className="muted small">Current bet {money(h.currentBet)}</div>
-          )}
         </div>
         {h && <Claims state={state} hand={h} you={you} room={room} />}
         {strict && !h && (
