@@ -4,6 +4,7 @@ import type { Denom, GameState, Hand, Player, Pot } from '../shared/types';
 import { Chip, ChipStack } from './Chip';
 import { MoneyInput, SettingsSheet } from './Lobby';
 import type { ChipScene } from './scene';
+import { sfx } from './sound';
 import type { useRoom } from './useRoom';
 
 type Room = ReturnType<typeof useRoom>;
@@ -101,6 +102,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
 
   const [tray, setTray] = useState<Chips>({});
   const [flights, setFlights] = useState<Flight[]>([]);
+  const [muted, setMuted] = useState(sfx.muted);
   const [sheet, setSheet] = useState<'host' | 'settings' | 'rebuy' | 'log' | null>(null);
   const potRef = useRef<HTMLDivElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
@@ -138,7 +140,9 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
   const [pendingRaw, setPending] = useState<{ key: string; chips: Chips }>({ key: '', chips: {} });
   const pending = pendingRaw.key === chipsKey ? pendingRaw.chips : {};
   useEffect(() => {
-    if (room.error) setPending({ key: '', chips: {} });
+    if (!room.error) return;
+    setPending({ key: '', chips: {} });
+    sfx.error();
   }, [room.error]);
 
   // What is left in my stacks after the tray and pending throws.
@@ -203,7 +207,21 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
       });
     }
     scene?.setPot(ha?.potChips ?? {});
-    if (ha?.toAct === you && hb?.toAct !== you) buzz(60);
+    if (ha?.toAct === you && hb?.toAct !== you) {
+      buzz(60);
+      sfx.turn();
+    }
+    // Sounds for what just happened, read off the new log lines.
+    const added = Math.min(state.log.length, (state.logSeq ?? 0) - (before.logSeq ?? 0));
+    for (const line of added > 0 ? state.log.slice(-added) : []) {
+      if (/ checks$/.test(line)) sfx.knock();
+      else if (/ folds$/.test(line)) sfx.fold();
+      else if (/^Hand \d+:/.test(line)) sfx.deal();
+      else if (/^— /.test(line)) sfx.flip();
+      else if (/ is all-in /.test(line)) sfx.allIn();
+      else if (/ (wins|split) /.test(line)) sfx.win(line.split(/ (wins|split) /)[0].split(' & ').includes(me.name));
+      else if (/ (joined|buys in for) /.test(line) || / joined$/.test(line)) sfx.join();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, mode]);
 
@@ -213,12 +231,30 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
     );
   }, [avail, tray, mode, denoms, me.status]);
 
-  const throwTray = (power = 0.5) => {
+  const [dragPx, setDragPx] = useState<{ x: number; y: number } | null>(null);
+  const onDrag = (dx: number, dy: number) => {
+    if (sceneRef.current) sceneRef.current.setDrag(dx, dy, true);
+    else setDragPx({ x: dx, y: dy });
+  };
+  const onRelease = (dx: number, dy: number, vx: number, vy: number) => {
+    setDragPx(null);
+    // A flick, or a slow carry most of the way to the pot, both count as a throw.
+    const thrown = vy < -0.3 || dy < -110;
+    if (thrown && canThrow && chipValue(tray) > 0) return throwTray(vx, Math.min(vy, -0.45));
+    sceneRef.current?.setDrag(0, 0, false);
+    if (thrown && !canThrow) {
+      buzz([15, 40, 15]);
+      sfx.error();
+    }
+    void dx;
+  };
+  const throwTray = (vx = 0, vy = -1) => {
     const amount = chipValue(tray);
     if (amount === 0) return;
     if (!canThrow) return;
-    if (sceneRef.current) sceneRef.current.throwTray(power);
+    if (sceneRef.current) sceneRef.current.throwTray(vx, vy);
     else fly(chipList(tray, denoms), trayRef.current, potRef.current);
+    sfx.whoosh(Math.min(1, Math.hypot(vx, vy) / 2));
     buzz(25);
     room.send({ type: 'bet', chips: tray });
     setPending({ key: chipsKey, chips: tray });
@@ -245,6 +281,16 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
           </span>
         </div>
         <div className="top-actions">
+          <button
+            className="btn tiny"
+            aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
+            onClick={() => {
+              sfx.setMuted(!muted);
+              setMuted(!muted);
+            }}
+          >
+            {muted ? '🔇' : '🔊'}
+          </button>
           <button className="btn tiny" onClick={() => setSheet('log')}>
             Log
           </button>
@@ -347,27 +393,38 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
             <QuickBets hand={h!} me={me} toCall={toCall} bb={state.settings.bigBlind} setTray={setTray} />
           )}
 
-          <Tray dom={dom} tray={tray} denoms={denoms} trayRef={trayRef} canThrow={canThrow} onThrow={throwTray} onRemove={(d) => setTray((t) => subChips(t, { [d]: 1 }))} label={strict && myTurn ? betLabel(h!, you, chipValue(tray), myStack) : null} />
-
-          <div className="my-stacks">
-            {denoms.map((d) => {
-              const n = avail[d.value] ?? 0;
-              return (
-                <button
+          <SwipeZone enabled={chipValue(tray) > 0} onDrag={onDrag} onRelease={onRelease}>
+            <Tray
+              dom={dom}
+              tray={tray}
+              denoms={denoms}
+              trayRef={trayRef}
+              canThrow={canThrow}
+              dragPx={dragPx}
+              onRemove={(d) => {
+                sfx.pick();
+                setTray((t) => (t[d] ? subChips(t, { [d]: 1 }) : t));
+              }}
+              label={strict && myTurn ? betLabel(h!, you, chipValue(tray), myStack) : null}
+            />
+            <div className="my-stacks">
+              {denoms.map((d) => (
+                <StackButton
                   key={d.value}
-                  className="my-stack"
-                  disabled={n === 0}
-                  onClick={() => {
+                  d={d}
+                  dom={dom}
+                  count={avail[d.value] ?? 0}
+                  onAdd={() => {
+                    const limit = (me.chips[d.value] ?? 0) - (pending[d.value] ?? 0);
+                    if ((tray[d.value] ?? 0) >= limit) return;
+                    sfx.pick();
                     buzz(8);
-                    setTray((t) => addChips(t, { [d.value]: 1 }));
+                    setTray(addChips(tray, { [d.value]: 1 }));
                   }}
-                >
-                  {dom ? <ChipStack value={d.value} color={d.color} count={n} size={46} /> : <div className="stack-space" data-anchor={`stack:${d.value}`} />}
-                  <span>× {n}</span>
-                </button>
-              );
-            })}
-          </div>
+                />
+              ))}
+            </div>
+          </SwipeZone>
           <div className="my-total">
             <span>Your stack</span> <b>{money(myStack)}</b>
             {!strict && h && (h.throws[you]?.length ?? 0) > 0 && (
@@ -442,88 +499,162 @@ function QuickBets({ hand, me, toCall, bb, setTray }: { hand: Hand; me: Player; 
 
 /* ---------- swipe tray ---------- */
 
+/** Set while a swipe is in progress, so held stack buttons stop adding chips. */
+let swiping = false;
+
+/**
+ * Wraps the tray and the stacks: once chips are picked up, an upward drag that
+ * starts anywhere in here moves them with the finger, and a flick throws them.
+ */
+function SwipeZone({
+  enabled,
+  onDrag,
+  onRelease,
+  children,
+}: {
+  enabled: boolean;
+  onDrag: (dx: number, dy: number) => void;
+  /** Finger lifted after a drag: total travel in px and release velocity in px/ms. */
+  onRelease: (dx: number, dy: number, vx: number, vy: number) => void;
+  children: React.ReactNode;
+}) {
+  const g = useRef<{ id: number; x: number; y: number; dragging: boolean; samples: { x: number; y: number; t: number }[] } | null>(null);
+  const suppressClick = useRef(false);
+
+  const end = (e: RPointerEvent, cancelled: boolean) => {
+    const d = g.current;
+    if (!d || d.id !== e.pointerId) return;
+    g.current = null;
+    if (!d.dragging) return;
+    swiping = false;
+    // Velocity over the last ~90 ms of movement, which is what a flick feels like.
+    const now = performance.now();
+    const recent = d.samples.filter((s) => now - s.t < 90);
+    const first = recent[0] ?? d.samples[d.samples.length - 1];
+    const last = d.samples[d.samples.length - 1];
+    const dt = Math.max(16, last.t - first.t);
+    const vx = (last.x - first.x) / dt;
+    const vy = (last.y - first.y) / dt;
+    if (cancelled) onRelease(0, 0, 0, 0);
+    else onRelease(last.x - d.x, last.y - d.y, vx, vy);
+  };
+
+  return (
+    <div
+      className="swipe-zone"
+      onPointerDown={(e) => {
+        suppressClick.current = false;
+        if (!enabled || g.current) return;
+        g.current = { id: e.pointerId, x: e.clientX, y: e.clientY, dragging: false, samples: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
+      }}
+      onPointerMove={(e) => {
+        const d = g.current;
+        if (!d || d.id !== e.pointerId) return;
+        const dx = e.clientX - d.x;
+        const dy = e.clientY - d.y;
+        if (!d.dragging) {
+          if (dy > -8 || -dy < Math.abs(dx) * 0.6) return;
+          d.dragging = true;
+          swiping = true;
+          suppressClick.current = true;
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }
+        d.samples.push({ x: e.clientX, y: e.clientY, t: performance.now() });
+        if (d.samples.length > 12) d.samples.shift();
+        onDrag(dx, Math.min(dy, 12));
+      }}
+      onPointerUp={(e) => end(e, false)}
+      onPointerCancel={(e) => end(e, true)}
+      onClickCapture={(e) => {
+        if (!suppressClick.current) return;
+        suppressClick.current = false;
+        e.stopPropagation();
+        e.preventDefault();
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** One of my chip stacks: tap to pick up a chip, hold to keep picking. */
+function StackButton({ d, count, dom, onAdd }: { d: Denom; count: number; dom: boolean; onAdd: () => void }) {
+  const timers = useRef<{ wait?: ReturnType<typeof setTimeout>; rep?: ReturnType<typeof setInterval>; held: boolean }>({ held: false });
+  const add = useRef(onAdd);
+  add.current = onAdd;
+  const stop = () => {
+    clearTimeout(timers.current.wait);
+    clearInterval(timers.current.rep);
+  };
+  useEffect(() => stop, []);
+  return (
+    <button
+      className="my-stack"
+      disabled={count === 0}
+      onPointerDown={() => {
+        stop();
+        timers.current.held = false;
+        timers.current.wait = setTimeout(() => {
+          timers.current.held = true;
+          timers.current.rep = setInterval(() => (swiping ? stop() : add.current()), 85);
+        }, 350);
+      }}
+      onPointerUp={stop}
+      onPointerLeave={stop}
+      onPointerCancel={stop}
+      onClick={() => {
+        if (!timers.current.held) onAdd();
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {dom ? <ChipStack value={d.value} color={d.color} count={count} size={46} /> : <div className="stack-space" data-anchor={`stack:${d.value}`} />}
+      <span>× {count}</span>
+    </button>
+  );
+}
+
 function Tray({
   dom,
   tray,
   denoms,
   trayRef,
   canThrow,
-  onThrow,
   onRemove,
   label,
+  dragPx,
 }: {
   dom: boolean;
   tray: Chips;
   denoms: Denom[];
   trayRef: React.RefObject<HTMLDivElement | null>;
   canThrow: boolean;
-  onThrow: (power: number) => void;
   onRemove: (d: number) => void;
   label: string | null;
+  /** Flat-chip fallback only: how far the chips are being dragged. */
+  dragPx: { x: number; y: number } | null;
 }) {
-  const [dy, setDy] = useState(0);
-  const drag = useRef<{ y: number; t: number; id: number; moved: boolean } | null>(null);
   const amount = chipValue(tray);
-
-  const down = (e: RPointerEvent) => {
-    if (amount === 0) return;
-    drag.current = { y: e.clientY, t: performance.now(), id: e.pointerId, moved: false };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  };
-  const move = (e: RPointerEvent) => {
-    const d = drag.current;
-    if (!d || d.id !== e.pointerId) return;
-    const delta = Math.min(0, e.clientY - d.y);
-    if (delta < -6) d.moved = true;
-    setDy(delta);
-  };
-  const up = (e: RPointerEvent) => {
-    const d = drag.current;
-    drag.current = null;
-    if (!d) return;
-    const delta = e.clientY - d.y;
-    const v = delta / Math.max(1, performance.now() - d.t);
-    setDy(0);
-    if (canThrow && (delta < -70 || (delta < -25 && v < -0.6))) onThrow(Math.min(1, Math.max(0, (-v - 0.3) / 1.5)));
-    else if (!d.moved) {
-      // A plain tap on a chip in the tray puts it back.
-      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-denom]');
-      if (el) onRemove(Number(el.getAttribute('data-denom')));
-    }
-  };
-
   return (
-    <div
-      ref={trayRef}
-      className={`tray ${amount ? 'filled' : ''} ${canThrow ? '' : 'locked'}`}
-      onPointerDown={down}
-      onPointerMove={move}
-      onPointerUp={up}
-      onPointerCancel={() => {
-        drag.current = null;
-        setDy(0);
-      }}
-      style={{ transform: `translateY(${dy}px) scale(${1 + Math.min(0.08, -dy / 1500)})` }}
-    >
+    <div ref={trayRef} className={`tray ${amount ? 'filled' : ''} ${canThrow ? '' : 'locked'}`}>
       {amount === 0 ? (
-        <span className="muted small">Tap your chips below to pick them up</span>
+        <span className="muted small">Tap your chips to pick them up · hold to pick faster</span>
       ) : (
         <>
-          <div className="tray-chips">
+          <div className="tray-chips" style={dragPx ? { transform: `translate(${dragPx.x}px, ${dragPx.y}px)`, transition: 'none' } : undefined}>
             {denoms
               .filter((d) => tray[d.value])
               .map((d) => (
-                <div key={d.value} data-denom={d.value} className="tray-group">
+                <button key={d.value} className="tray-group" aria-label={`Put back one ${money(d.value)} chip`} onClick={() => onRemove(d.value)}>
                   <div className="tray-spot" data-anchor={`tray:${d.value}`}>
                     {dom && <ChipStack value={d.value} color={d.color} count={tray[d.value]} size={40} />}
                   </div>
                   <span>× {tray[d.value]}</span>
-                </div>
+                </button>
               ))}
           </div>
           <div className="tray-label">
             <b>{label ?? money(amount)}</b>
-            <span className="muted small">{canThrow ? '↑ Swipe up to throw' : 'Wait for your turn'}</span>
+            <span className="muted small">{canThrow ? '↑ Flick up to throw' : 'Wait for your turn'}</span>
           </div>
         </>
       )}
@@ -549,8 +680,10 @@ function Players({ state, you, online }: { state: GameState; you: string; online
                 {p.name}
                 {h?.dealer === p.id && <span className="dealer">D</span>}
               </div>
-              <div className="pstack">{p.status === 'waiting' ? 'waiting' : money(chipValue(p.chips))}</div>
-              <div className="pbet">{folded ? 'folded' : h?.allIn.includes(p.id) ? 'all-in' : bet ? money(bet) : ' '}</div>
+              <div className="pline">
+                <span className="pstack">{p.status === 'waiting' ? 'waiting' : money(chipValue(p.chips))}</span>
+                <span className="pbet">{folded ? 'folded' : h?.allIn.includes(p.id) ? 'all-in' : bet ? `bet ${money(bet)}` : ''}</span>
+              </div>
             </div>
           );
         })}

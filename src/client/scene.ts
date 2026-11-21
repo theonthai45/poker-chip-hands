@@ -1,6 +1,8 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { money, type Chips } from '../shared/chips';
 import type { Denom } from '../shared/types';
+import { sfx } from './sound';
 
 /** Chip thickness as a fraction of its radius (real chips: 39 mm × 3.3 mm). */
 const THICK = 0.17;
@@ -20,6 +22,9 @@ interface OwnChip {
   place: Place;
   index: number;
   hop: number; // 1 → 0 while hopping between stack and tray
+  /** Small sideways offset so stacks are not perfectly straight. */
+  jx: number;
+  jz: number;
 }
 
 interface PileChip {
@@ -47,114 +52,283 @@ function textOn(bg: string) {
   return lum > 150 ? '#1a1a1a' : '#ffffff';
 }
 
-function faceTexture(d: Denom): THREE.CanvasTexture {
-  const S = 256;
+function shade(hex: string, amt: number) {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (v: number) => Math.max(0, Math.min(255, Math.round(amt >= 0 ? v + (255 - v) * amt : v * (1 + amt))));
+  return `rgb(${ch(n >> 16)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
+}
+
+interface Spot {
+  /** Centre angle and half-width, in radians; c picks the first or second accent colour. */
+  a: number;
+  w: number;
+  c: 0 | 1;
+  /** How far in from the rim the spot reaches (fraction of radius). */
+  depth: number;
+}
+
+const EDGE_STYLES = 6;
+
+/** Edge-spot layouts. Each is symmetric so faces and edge line up from any side. */
+function edgeSpots(style: number): Spot[] {
+  const out: Spot[] = [];
+  const ring = (n: number, w: number, c: 0 | 1, depth: number, offset = 0) => {
+    for (let k = 0; k < n; k++) out.push({ a: offset + (k * Math.PI * 2) / n, w, c, depth });
+  };
+  switch (style % EDGE_STYLES) {
+    case 0: // six blocks
+      ring(6, 0.25, 0, 0.24);
+      break;
+    case 1: // eight twin stripes
+      ring(8, 0.045, 0, 0.24, -0.085);
+      ring(8, 0.045, 0, 0.24, 0.085);
+      break;
+    case 2: // four big blocks with a pip between
+      ring(4, 0.36, 0, 0.24);
+      ring(4, 0.1, 1, 0.14, Math.PI / 4);
+      break;
+    case 3: // twelve dashes
+      ring(12, 0.11, 0, 0.16);
+      break;
+    case 4: // four triple bars
+      ring(4, 0.06, 0, 0.24, -0.2);
+      ring(4, 0.08, 1, 0.24, 0);
+      ring(4, 0.06, 0, 0.24, 0.2);
+      break;
+    default: // eight blocks with thin bars between
+      ring(8, 0.17, 0, 0.24);
+      ring(8, 0.04, 1, 0.24, Math.PI / 8);
+  }
+  return out;
+}
+
+function accents(d: Denom): [string, string] {
+  const dark = textOn(d.color) === '#1a1a1a';
+  return dark ? ['#27376b', '#b3262d'] : ['#f6f3ea', '#e8c15a'];
+}
+
+function canvas(size: number, h = size) {
   const c = document.createElement('canvas');
-  c.width = c.height = S;
-  const g = c.getContext('2d')!;
+  c.width = size;
+  c.height = h;
+  return [c, c.getContext('2d')!] as const;
+}
+
+function speckle(g: CanvasRenderingContext2D, w: number, h: number, alpha: number, count: number) {
+  for (let i = 0; i < count; i++) {
+    g.fillStyle = Math.random() < 0.5 ? `rgba(255,255,255,${alpha})` : `rgba(0,0,0,${alpha})`;
+    g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5);
+  }
+}
+
+/** Colour, bump and roughness maps for a chip face. */
+function faceMaps(d: Denom, style: number) {
+  const S = 512;
   const R = S / 2;
+  const [acc1, acc2] = accents(d);
   const ink = textOn(d.color);
-  const accent = ink === '#ffffff' ? '#ffffff' : '#2b3a67';
+  const spots = edgeSpots(style);
+
+  const [cc, g] = canvas(S);
   g.fillStyle = d.color;
   g.fillRect(0, 0, S, S);
-  // Edge inserts
-  g.fillStyle = accent;
-  for (let k = 0; k < 6; k++) {
-    const a = (k * Math.PI) / 3;
+  speckle(g, S, S, 0.05, 2600); // clay grain
+  for (const s of spots) {
+    g.fillStyle = s.c ? acc2 : acc1;
     g.beginPath();
-    g.arc(R, R, R, a - 0.26, a + 0.26);
-    g.arc(R, R, R * 0.74, a + 0.26, a - 0.26, true);
+    g.arc(R, R, R, s.a - s.w, s.a + s.w);
+    g.arc(R, R, R * (1 - s.depth), s.a + s.w, s.a - s.w, true);
     g.fill();
   }
-  // Inlay
+  // Moulded ring between rim and inlay
+  g.lineWidth = 3;
+  g.strokeStyle = ink === '#ffffff' ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
   g.beginPath();
-  g.arc(R, R, R * 0.6, 0, Math.PI * 2);
-  g.fillStyle = d.color;
-  g.fill();
-  g.lineWidth = 5;
-  g.setLineDash([10, 9]);
-  g.strokeStyle = accent;
-  g.globalAlpha = 0.75;
+  g.arc(R, R, R * 0.73, 0, Math.PI * 2);
   g.stroke();
-  g.globalAlpha = 1;
-  g.setLineDash([]);
-  const shade = g.createRadialGradient(R, R, R * 0.2, R, R, R);
-  shade.addColorStop(0, 'rgba(255,255,255,0.10)');
-  shade.addColorStop(1, 'rgba(0,0,0,0.18)');
-  g.fillStyle = shade;
-  g.fillRect(0, 0, S, S);
-  const label = money(d.value).replace('$', '');
-  g.fillStyle = ink;
-  g.font = `800 ${label.length > 3 ? 62 : label.length > 2 ? 74 : 92}px system-ui, sans-serif`;
+  // Inlay (the printed centre label)
+  const inlayR = R * 0.62;
+  const grad = g.createRadialGradient(R - 30, R - 40, 10, R, R, inlayR);
+  grad.addColorStop(0, shade(d.color, 0.08));
+  grad.addColorStop(1, shade(d.color, -0.16));
+  g.fillStyle = grad;
+  g.beginPath();
+  g.arc(R, R, inlayR, 0, Math.PI * 2);
+  g.fill();
+  g.lineWidth = 7;
+  g.strokeStyle = '#d9b24c';
+  g.stroke();
+  g.lineWidth = 2;
+  g.strokeStyle = 'rgba(0,0,0,0.35)';
+  g.beginPath();
+  g.arc(R, R, inlayR - 12, 0, Math.PI * 2);
+  g.stroke();
+  // Suits around the label
+  g.font = '34px serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(label, R, R + 4);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  return t;
+  ['♠', '♥', '♣', '♦'].forEach((suit, i) => {
+    const a = (i * Math.PI) / 2 - Math.PI / 2;
+    g.save();
+    g.translate(R + Math.cos(a) * inlayR * 0.74, R + Math.sin(a) * inlayR * 0.74);
+    g.rotate(a + Math.PI / 2);
+    g.fillStyle = ink === '#ffffff' ? 'rgba(255,255,255,0.75)' : i % 2 ? '#b3262d' : '#1a1a1a';
+    g.fillText(suit, 0, 0);
+    g.restore();
+  });
+  const label = money(d.value).replace('$', '');
+  g.font = `800 ${label.length > 3 ? 104 : label.length > 2 ? 124 : 150}px system-ui, sans-serif`;
+  g.lineWidth = 6;
+  g.strokeStyle = ink === '#ffffff' ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.5)';
+  g.strokeText(label, R, R + 6);
+  g.fillStyle = ink;
+  g.fillText(label, R, R + 6);
+  const map = new THREE.CanvasTexture(cc);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 8;
+
+  // Height: cross-hatched rim sits proud, the inlay is slightly recessed.
+  const B = 256;
+  const [bc, b] = canvas(B);
+  b.fillStyle = '#9a9a9a';
+  b.fillRect(0, 0, B, B);
+  b.strokeStyle = '#c4c4c4';
+  b.lineWidth = 1;
+  for (let i = -B; i < B * 2; i += 5) {
+    b.beginPath();
+    b.moveTo(i, 0);
+    b.lineTo(i + B, B);
+    b.moveTo(i, 0);
+    b.lineTo(i - B, B);
+    b.stroke();
+  }
+  b.fillStyle = '#b8b8b8';
+  for (const s of spots) {
+    b.beginPath();
+    b.arc(B / 2, B / 2, B / 2, s.a - s.w, s.a + s.w);
+    b.arc(B / 2, B / 2, (B / 2) * (1 - s.depth), s.a + s.w, s.a - s.w, true);
+    b.fill();
+  }
+  b.fillStyle = '#6e6e6e';
+  b.beginPath();
+  b.arc(B / 2, B / 2, (B / 2) * 0.62, 0, Math.PI * 2);
+  b.fill();
+  b.lineWidth = 4;
+  b.strokeStyle = '#a8a8a8';
+  b.stroke();
+  const bumpMap = new THREE.CanvasTexture(bc);
+
+  // Roughness (green channel): matte clay rim, glossier printed label.
+  const [rc, r] = canvas(B);
+  r.fillStyle = 'rgb(0,205,0)';
+  r.fillRect(0, 0, B, B);
+  r.fillStyle = 'rgb(0,90,0)';
+  r.beginPath();
+  r.arc(B / 2, B / 2, (B / 2) * 0.62, 0, Math.PI * 2);
+  r.fill();
+  const roughnessMap = new THREE.CanvasTexture(rc);
+  return { map, bumpMap, roughnessMap };
 }
 
-function sideTexture(d: Denom): THREE.CanvasTexture {
-  const W = 384;
-  const c = document.createElement('canvas');
-  c.width = W;
-  c.height = 16;
-  const g = c.getContext('2d')!;
+function sideMap(d: Denom, style: number): THREE.CanvasTexture {
+  const W = 1024;
+  const H = 32;
+  const [c, g] = canvas(W, H);
+  const [acc1, acc2] = accents(d);
   g.fillStyle = d.color;
-  g.fillRect(0, 0, W, 16);
-  g.fillStyle = textOn(d.color) === '#ffffff' ? '#ffffff' : '#2b3a67';
-  const w = (0.52 / (Math.PI * 2)) * W;
-  for (let k = 0; k <= 6; k++) g.fillRect((k / 6) * W - w / 2, 0, w, 16);
-  g.fillStyle = 'rgba(0,0,0,0.22)';
-  g.fillRect(0, 0, W, 2);
-  g.fillRect(0, 14, W, 2);
+  g.fillRect(0, 0, W, H);
+  speckle(g, W, H, 0.06, 500);
+  for (const s of edgeSpots(style)) {
+    g.fillStyle = s.c ? acc2 : acc1;
+    const w = (s.w / Math.PI) * W;
+    for (const shift of [-W, 0, W]) g.fillRect((s.a / (Math.PI * 2)) * W - w / 2 + shift, 0, w, H);
+  }
+  // Mould seam and darkened edges give the stack its ridged look.
+  g.fillStyle = 'rgba(0,0,0,0.28)';
+  g.fillRect(0, 0, W, 4);
+  g.fillRect(0, H - 4, W, 4);
+  g.fillStyle = 'rgba(255,255,255,0.14)';
+  g.fillRect(0, H / 2 - 1, W, 2);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  t.anisotropy = 8;
   return t;
 }
 
-/** Short synthesized chip "clack". */
-class Clack {
-  private ctx: AudioContext | null = null;
-  private buf: AudioBuffer | null = null;
-  private last = 0;
-  unlock() {
-    if (this.ctx) return void this.ctx.resume?.();
-    try {
-      this.ctx = new AudioContext();
-      const n = Math.floor(this.ctx.sampleRate * 0.05);
-      this.buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
-      const data = this.buf.getChannelData(0);
-      for (let i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (n * 0.12));
-    } catch {
-      this.ctx = null;
+/**
+ * A unit-radius chip with rounded rims. Group 0 is the edge, group 1 the two faces.
+ */
+function chipGeometry(): THREE.BufferGeometry {
+  const SEG = 56;
+  const h = THICK / 2;
+  const bev = 0.045;
+  const pos: number[] = [];
+  const nor: number[] = [];
+  const uv: number[] = [];
+  const idxSide: number[] = [];
+  const idxFace: number[] = [];
+  const P = (i: number) => new THREE.Vector3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+  const N = (i: number) => new THREE.Vector3(nor[i * 3], nor[i * 3 + 1], nor[i * 3 + 2]);
+  const vert = (x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number) => {
+    const l = Math.hypot(nx, ny, nz) || 1;
+    pos.push(x, y, z);
+    nor.push(nx / l, ny / l, nz / l);
+    uv.push(u, v);
+    return pos.length / 3 - 1;
+  };
+  /** Add a triangle, flipping it if needed so it faces the way its normals point. */
+  const tri = (out: number[], a: number, b: number, c: number) => {
+    const face = P(b).sub(P(a)).cross(P(c).sub(P(a)));
+    if (face.dot(N(a).add(N(b)).add(N(c))) < 0) out.push(a, c, b);
+    else out.push(a, b, c);
+  };
+  const ring = (radius: number, y: number, ny: number, nr: number, planar: number | null, v = 0) => {
+    const ids: number[] = [];
+    for (let i = 0; i <= SEG; i++) {
+      const a = (i / SEG) * Math.PI * 2;
+      const cx = Math.cos(a);
+      const cz = Math.sin(a);
+      // Faces use a flat top-down projection; the bottom is mirrored so its label reads correctly.
+      const u = planar === null ? i / SEG : 0.5 + (cx * radius) / 2;
+      const vv = planar === null ? v : 0.5 - (planar * cz * radius) / 2;
+      ids.push(vert(cx * radius, y, cz * radius, cx * nr, ny, cz * nr, u, vv));
     }
+    return ids;
+  };
+  const strip = (out: number[], a: number[], b: number[]) => {
+    for (let i = 0; i < SEG; i++) {
+      tri(out, a[i], b[i], a[i + 1]);
+      tri(out, a[i + 1], b[i], b[i + 1]);
+    }
+  };
+  for (const sgn of [1, -1]) {
+    const centre = vert(0, sgn * h, 0, 0, sgn, 0, 0.5, 0.5);
+    const inner = ring(1 - bev, sgn * h, sgn, 0, sgn);
+    for (let i = 0; i < SEG; i++) tri(idxFace, centre, inner[i], inner[i + 1]);
+    // Rounded shoulder: normals blend from straight up to straight out.
+    const shoulderIn = ring(1 - bev, sgn * h, sgn, 0.25, sgn);
+    const shoulderOut = ring(1, sgn * (h - bev), sgn * 0.25, 1, sgn);
+    strip(idxFace, shoulderIn, shoulderOut);
   }
-  play(volume = 0.25) {
-    if (!this.ctx || !this.buf || this.ctx.state !== 'running') return;
-    const now = performance.now();
-    if (now - this.last < 35) return;
-    this.last = now;
-    const src = this.ctx.createBufferSource();
-    src.buffer = this.buf;
-    src.playbackRate.value = 0.9 + Math.random() * 0.5;
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.value = 3200 + Math.random() * 1500;
-    filter.Q.value = 1.2;
-    const gain = this.ctx.createGain();
-    gain.gain.value = volume;
-    src.connect(filter).connect(gain).connect(this.ctx.destination);
-    src.start();
-  }
+  strip(idxSide, ring(1, h - bev, 0, 1, null, 1), ring(1, -(h - bev), 0, 1, null, 0));
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex([...idxSide, ...idxFace]);
+  geo.addGroup(0, idxSide.length, 0);
+  geo.addGroup(idxSide.length, idxFace.length, 1);
+  geo.computeBoundingSphere();
+  return geo;
 }
 
 export class ChipScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(35, 1, 1, 200);
-  private geo = new THREE.CylinderGeometry(1, 1, THICK, 40, 1);
+  private geo = chipGeometry();
   private mats = new Map<number, THREE.Material[]>();
   private ring: THREE.Mesh;
   private raycaster = new THREE.Raycaster();
@@ -170,8 +344,9 @@ export class ChipScene {
   private anchorSig = '';
   private dirty = true;
   private ro: ResizeObserver;
-  private clack = new Clack();
-  private unlock = () => this.clack.unlock();
+  private drag = { x: 0, y: 0, active: false, lift: 0 };
+  private slowFrames = 0;
+  private quality = 2;
   private disposed = false;
 
   constructor(
@@ -181,16 +356,23 @@ export class ChipScene {
     this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
+    // Soft studio reflections so the chips pick up highlights as they tumble.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.3;
+    pmrem.dispose();
 
     this.camera.position.set(0, CAM_DIST * Math.cos(TILT), CAM_DIST * Math.sin(TILT));
     this.camera.lookAt(0, 0, 0);
 
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x1c3a2a, 1.5));
-    const sun = new THREE.DirectionalLight(0xfff2dd, 2.2);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x1c3a2a, 0.55));
+    const sun = new THREE.DirectionalLight(0xfff2dd, 2.0);
     sun.position.set(-9, 26, 10);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.mapSize.set(2048, 2048);
     const sc = sun.shadow.camera;
     sc.left = sc.bottom = -22;
     sc.right = sc.top = 22;
@@ -200,7 +382,7 @@ export class ChipScene {
     sun.shadow.radius = 4;
     this.scene.add(sun);
 
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.ShadowMaterial({ opacity: 0.38 }));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.ShadowMaterial({ opacity: 0.45 }));
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     this.scene.add(ground);
@@ -216,7 +398,6 @@ export class ChipScene {
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(root);
     this.resize();
-    addEventListener('pointerdown', this.unlock, { passive: true });
     this.raf = requestAnimationFrame(this.frame);
   }
 
@@ -224,8 +405,8 @@ export class ChipScene {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.ro.disconnect();
-    removeEventListener('pointerdown', this.unlock);
-    for (const m of this.mats.values()) for (const x of m) ((x as THREE.MeshStandardMaterial).map?.dispose(), x.dispose());
+    this.disposeMaterials();
+    this.scene.environment?.dispose();
     this.geo.dispose();
     this.renderer.dispose();
   }
@@ -254,11 +435,11 @@ export class ChipScene {
     return this.root.querySelector(`[data-anchor="${key}"]`);
   }
 
-  private elPoint(el: Element | null, fy: number, out = new THREE.Vector3()): THREE.Vector3 | null {
+  private elPoint(el: Element | null, fy: number, out = new THREE.Vector3(), dx = 0, dy = 0): THREE.Vector3 | null {
     if (!el) return null;
     const b = el.getBoundingClientRect();
     if (b.width === 0 && b.height === 0) return null;
-    return this.toWorld(b.left + b.width / 2, b.top + b.height * fy, out);
+    return this.toWorld(b.left + b.width / 2 + dx, b.top + b.height * fy + dy, out);
   }
 
   private potCentre = new THREE.Vector3();
@@ -299,12 +480,27 @@ export class ChipScene {
     } else this.ring.visible = false;
   }
 
+  private disposeMaterials() {
+    for (const mats of this.mats.values()) {
+      for (const m of mats as THREE.MeshStandardMaterial[]) {
+        m.map?.dispose();
+        m.bumpMap?.dispose();
+        m.roughnessMap?.dispose();
+        m.dispose();
+      }
+    }
+    this.mats.clear();
+  }
+
   private material(denom: number): THREE.Material[] {
     let m = this.mats.get(denom);
     if (!m) {
-      const d = this.denoms.find((x) => x.value === denom) ?? { value: denom, color: '#888888' };
-      const face = new THREE.MeshStandardMaterial({ map: faceTexture(d), roughness: 0.5, metalness: 0.05 });
-      m = [new THREE.MeshStandardMaterial({ map: sideTexture(d), roughness: 0.6 }), face, face];
+      const sorted = [...this.denoms].sort((a, b) => a.value - b.value);
+      const style = Math.max(0, sorted.findIndex((x) => x.value === denom));
+      const d = sorted[style] ?? { value: denom, color: '#888888' };
+      const face = new THREE.MeshStandardMaterial({ ...faceMaps(d, style), bumpScale: 1.6, roughness: 1, metalness: 0 });
+      const side = new THREE.MeshStandardMaterial({ map: sideMap(d, style), roughness: 0.78, metalness: 0 });
+      m = [side, face];
       this.mats.set(denom, m);
     }
     return m;
@@ -325,7 +521,7 @@ export class ChipScene {
     const sig = (d: Denom[]) => d.map((x) => `${x.value}${x.color}`).join();
     if (sig(denoms) === sig(this.denoms)) return;
     this.denoms = denoms;
-    this.mats.clear();
+    this.disposeMaterials();
     for (const c of [...this.own, ...this.pile]) c.mesh.material = this.material(c.denom);
     this.dirty = true;
   }
@@ -342,8 +538,10 @@ export class ChipScene {
       mine.sort((a, b) => (a.place === b.place ? a.index - b.index : a.place === 'stack' ? -1 : 1));
       while (mine.length > stack + tray) this.scene.remove(mine.pop()!.mesh);
       while (mine.length < stack + tray) {
-        const c: OwnChip = { mesh: this.makeMesh(w.denom), denom: w.denom, place: 'stack', index: mine.length, hop: 0 };
+        const c: OwnChip = { mesh: this.makeMesh(w.denom), denom: w.denom, place: 'stack', index: mine.length, hop: 0, jx: 0, jz: 0 };
         c.mesh.rotation.y = Math.random() * Math.PI * 2;
+        c.jx = (Math.random() - 0.5) * 0.07;
+        c.jz = (Math.random() - 0.5) * 0.07;
         const idx = mine.length;
         const p = this.ownTarget(idx < stack ? 'stack' : 'tray', w.denom, idx < stack ? idx : idx - stack);
         if (p) c.mesh.position.copy(p);
@@ -363,12 +561,29 @@ export class ChipScene {
     this.dirty = true;
   }
 
-  /** Turn the chips sitting in the tray into thrown chips heading for the pot. */
-  throwTray(power = 0.5) {
+  /** Tray chips follow the finger by this many screen pixels while dragging. */
+  setDrag(x: number, y: number, active: boolean) {
+    this.drag.x = x;
+    this.drag.y = y;
+    this.drag.active = active;
+    this.dirty = true;
+  }
+
+  /**
+   * Turn the chips in the tray into thrown chips. `vx`/`vy` is the finger's
+   * release velocity in px/ms (up is negative): faster flicks fly flatter and
+   * quicker, and a sideways flick lands off-centre.
+   */
+  throwTray(vx = 0, vy = -1) {
+    const speed = Math.min(3, Math.hypot(vx, vy));
+    const power = Math.min(1, speed / 2);
+    const side = Math.max(-1, Math.min(1, vx / Math.max(0.3, -vy)));
     const flying = this.own.filter((c) => c.place === 'tray');
     this.own = this.own.filter((c) => c.place !== 'tray');
     flying.sort((a, b) => b.index - a.index);
-    flying.forEach((c, i) => this.launch(c.mesh, c.denom, c.mesh.position.clone(), i * 0.045, 0.75 - power * 0.3));
+    flying.forEach((c, i) => this.launch(c.mesh, c.denom, c.mesh.position.clone(), i * 0.035, 0.72 - power * 0.32, 1 - power * 0.55, side));
+    this.drag.active = false;
+    this.drag.x = this.drag.y = 0;
   }
 
   /** Chips thrown in from somewhere else on screen (another player, or a button press). */
@@ -413,12 +628,16 @@ export class ChipScene {
 
   /* ---------- pile ---------- */
 
-  private slot(): THREE.Vector3 {
+  private slot(side = 0): THREE.Vector3 {
     const resting = this.pile.filter((c) => c.state !== 'out');
     const spread = Math.min(this.ringR - this.r * 1.1, this.r * (1.1 + 0.5 * Math.sqrt(resting.length)));
     const a = Math.random() * Math.PI * 2;
     const d = Math.sqrt(Math.random()) * spread;
     const off = new THREE.Vector3(Math.cos(a) * d, 0, Math.sin(a) * d);
+    // A sideways flick carries the chips toward that side of the pot.
+    off.x += side * this.r * 2.2;
+    const max = this.ringR - this.r * 1.1;
+    if (off.length() > max) off.setLength(max);
     off.y = this.restHeight(off, resting);
     return off;
   }
@@ -434,8 +653,8 @@ export class ChipScene {
     return y;
   }
 
-  private launch(mesh: THREE.Mesh, denom: number, from: THREE.Vector3, delay: number, dur: number) {
-    const off = this.slot();
+  private launch(mesh: THREE.Mesh, denom: number, from: THREE.Vector3, delay: number, dur: number, arc = 1, side = 0) {
+    const off = this.slot(side);
     const onTop = off.y > this.r * THICK;
     const restQ = new THREE.Quaternion().setFromEuler(
       new THREE.Euler(onTop ? (Math.random() - 0.5) * 0.16 : 0, Math.random() * Math.PI * 2, onTop ? (Math.random() - 0.5) * 0.16 : 0),
@@ -452,7 +671,7 @@ export class ChipScene {
       t: 0,
       delay,
       dur: dur * (0.9 + Math.random() * 0.25),
-      peak: this.r * (3.5 + Math.random() * 2.5),
+      peak: this.r * (3.5 + Math.random() * 2.5) * arc,
       flips: 1 + Math.floor(Math.random() * 2),
       // Tumble end over end along the direction of travel, with a little wobble.
       axis: new THREE.Vector3(dir.z + (Math.random() - 0.5) * 0.5, 0, -dir.x + (Math.random() - 0.5) * 0.5).normalize(),
@@ -489,8 +708,10 @@ export class ChipScene {
         }
       }
     }
-    if (removed) this.resettle();
-    this.dirty = true;
+    if (removed) {
+      this.resettle();
+      this.dirty = true;
+    }
   }
 
   private resettle() {
@@ -511,6 +732,29 @@ export class ChipScene {
     return p;
   }
 
+  private prevFrame = 0;
+  private wasMoving = false;
+  /** Step the detail down on phones that cannot keep animations smooth. */
+  private tuneQuality(now: number) {
+    const gap = now - this.prevFrame;
+    this.prevFrame = now;
+    if (!this.wasMoving || this.quality === 0) return;
+    this.slowFrames = gap > 40 ? this.slowFrames + 1 : Math.max(0, this.slowFrames - 2);
+    if (this.slowFrames < 12) return;
+    this.slowFrames = 0;
+    this.quality -= 1;
+    if (this.quality === 1) this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
+    else {
+      this.renderer.setPixelRatio(1);
+      this.renderer.shadowMap.enabled = false;
+      this.scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        for (const x of Array.isArray(m) ? m : m ? [m] : []) x.needsUpdate = true;
+      });
+    }
+    this.resize();
+  }
+
   private tmpQ = new THREE.Quaternion();
   private flat = new THREE.Quaternion();
 
@@ -525,13 +769,20 @@ export class ChipScene {
       this.reconcile();
     }
     let moving = false;
+    this.tuneQuality(now);
 
     // Own chips ease toward their slot in the stack or tray.
-    const k = 1 - Math.exp(-dt * 20);
+    const ease = 1 - Math.exp(-dt * 20);
+    const k = ease;
+    this.drag.lift += ((this.drag.active ? 1 : 0) - this.drag.lift) * (1 - Math.exp(-dt * 25));
+    if (this.drag.lift > 0.01 && this.drag.lift < 0.99) moving = true;
     const cache = new Map<string, THREE.Vector3 | null>();
     for (const c of this.own) {
       const key = `${c.place}:${c.denom}`;
-      if (!cache.has(key)) cache.set(key, this.elPoint(this.el(key), c.place === 'stack' ? 0.74 : 0.5));
+      if (!cache.has(key)) {
+        const tray = c.place === 'tray';
+        cache.set(key, this.elPoint(this.el(key), tray ? 0.5 : 0.74, undefined, tray ? this.drag.x : 0, tray ? this.drag.y : 0));
+      }
       const base = cache.get(key);
       if (!base) {
         c.mesh.visible = false;
@@ -539,11 +790,14 @@ export class ChipScene {
       }
       c.mesh.visible = true;
       if (c.hop > 0) c.hop = Math.max(0, c.hop - dt / 0.28);
-      const ty = this.r * THICK * (c.index + 0.5) + Math.sin(Math.PI * c.hop) * this.r * 1.6;
+      const held = c.place === 'tray' ? this.drag.lift : 0;
+      const ty = this.r * THICK * (c.index + 0.5) + Math.sin(Math.PI * c.hop) * this.r * 1.6 + held * this.r * 0.9;
+      // While held, chips stick to the finger instead of easing after it.
+      const k = held > 0 && this.drag.active && c.hop === 0 ? 1 : ease;
       const p = c.mesh.position;
-      const dx = base.x - p.x;
+      const dx = base.x + c.jx * this.r - p.x;
       const dy = ty - p.y;
-      const dz = base.z - p.z;
+      const dz = base.z + c.jz * this.r - p.z;
       if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 0.002 || c.hop > 0) {
         p.x += dx * k;
         p.y += dy * k;
@@ -579,7 +833,7 @@ export class ChipScene {
         if (u >= 1) {
           if (!c.landed) {
             c.landed = true;
-            if (c.peak > 0) this.clack.play();
+            if (c.peak > 0) sfx.clack(c.off.y > this.r * THICK ? 1 : 0.7);
           }
           // A small bounce and wobble before settling.
           const v = (c.t - c.delay - c.dur) / 0.2;
@@ -601,12 +855,13 @@ export class ChipScene {
         if (u >= 1) {
           this.scene.remove(m);
           this.pile.splice(i, 1);
-          this.clack.play(0.12);
+          sfx.clack(0.45);
           this.resettle();
         }
       }
     }
 
+    this.wasMoving = moving;
     if (moving || this.dirty) {
       this.dirty = moving;
       this.renderer.render(this.scene, this.camera);

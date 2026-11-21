@@ -71,6 +71,8 @@ export interface GameState {
   dealerId: string | null;
   handCount: number;
   log: string[];
+  /** Total log lines ever written, so clients can tell which lines are new. */
+  logSeq?: number;
 }
 
 export type Action =

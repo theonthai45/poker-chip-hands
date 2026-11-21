@@ -8,8 +8,10 @@ Live poker chip tracker. Play with real cards; everyone's phone holds their chip
 - Auto-splits each buy-in into chips; host can change chips, colours, buy-in and blinds in Settings
 - **Turn order** (default): blinds, check / call / raise / fold, side pots
 - **Free-form**: anyone throws chips anytime, undo last throw
-- Tap chips to pick them up, **swipe up to throw** into the pot
-- 3D chips (three.js): stacks, tumbling throws and a pot pile, with a flat fallback when WebGL is unavailable
+- Tap (or hold) chips to pick them up, then **flick up** anywhere in the chip area to throw; chips follow your finger
+- 3D chips (three.js): bevelled chips with a different edge design per denomination, tumbling throws and a pot pile; flat fallback when WebGL is unavailable
+- Sounds for chips, checks, folds, deals, wins and your turn (mute button in the top bar)
+- All textures and sounds are generated in code, so there are no third-party assets to license
 - Winner claims the pot, others confirm (host can confirm for all)
 - Late joiners and rebuys with any buy-in amount, approved by the host
 - End game shows who pays whom

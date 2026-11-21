@@ -120,7 +120,11 @@ input {
 /* table */
 .table {
   position: relative; height: 100%; display: flex; flex-direction: column; max-width: 520px; margin: 0 auto;
-  background: radial-gradient(ellipse at 50% 35%, #1a7046 0%, var(--felt) 45%, var(--felt-dark) 100%);
+  background:
+    radial-gradient(ellipse at 50% 34%, rgba(255, 244, 214, 0.16) 0%, transparent 46%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 0.5  0 0 0 0 0.5  0 0 0 0 0.5  0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23f)' opacity='0.5'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse at 50% 35%, #1b7a4b 0%, var(--felt) 45%, #072a1a 100%);
+  background-blend-mode: normal, overlay, normal;
   overflow: hidden; touch-action: manipulation;
 }
 .table-top { display: flex; justify-content: space-between; align-items: center; padding: calc(10px + env(safe-area-inset-top)) 16px 6px; }
@@ -131,18 +135,19 @@ input {
 .player.folded { opacity: 0.45; }
 .pname { font-weight: 600; font-size: 14px; display: flex; align-items: center; white-space: nowrap; }
 .pstack { font-size: 13px; color: var(--muted); }
-.pbet { font-size: 13px; color: var(--gold); font-weight: 700; min-height: 18px; }
+.pline { display: flex; gap: 8px; align-items: baseline; min-height: 18px; white-space: nowrap; }
+.pbet { font-size: 13px; color: var(--gold); font-weight: 700; }
 .dealer { margin-left: 6px; background: #fff; color: #000; border-radius: 50%; width: 18px; height: 18px; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; }
 
-.felt { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 10px; padding: 0 16px; min-height: 0; overflow-y: auto; }
+.felt { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 6px; padding: 0 16px; min-height: 0; overflow-y: auto; }
 .scene { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
-.pot { text-align: center; width: 100%; flex: 1; min-height: 150px; display: flex; flex-direction: column; }
-.pile-area { flex: 1; min-height: 84px; max-height: 210px; display: flex; gap: 14px; justify-content: center; align-items: flex-end; }
+.pot { text-align: center; width: 100%; flex: 1; min-height: 132px; display: flex; flex-direction: column; }
+.pile-area { flex: 1; min-height: 70px; max-height: 210px; display: flex; gap: 14px; justify-content: center; align-items: flex-end; }
 .pot-counts { display: flex; gap: 14px; justify-content: center; font-size: 13px; font-weight: 600; min-height: 20px; position: relative; z-index: 6; }
 .pot-counts i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; border: 1px solid rgba(255, 255, 255, 0.5); vertical-align: -1px; }
-.stack-space { width: 56px; height: 92px; }
-.tray-group { display: flex; flex-direction: column; align-items: center; font-size: 12px; font-weight: 700; }
-.tray-spot { width: 52px; height: 50px; display: flex; align-items: flex-end; justify-content: center; }
+.stack-space { width: 56px; height: 84px; }
+.tray-group { background: none; border: 0; padding: 0; color: var(--text); font: inherit; cursor: pointer; display: flex; flex-direction: column; align-items: center; font-size: 12px; font-weight: 700; }
+.tray-spot { width: 52px; height: 44px; display: flex; align-items: flex-end; justify-content: center; }
 .pot-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
 .pot-total { font-size: 34px; font-weight: 800; color: var(--gold); line-height: 1.1; }
 .pot-chips { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 8px; min-height: 40px; align-items: flex-end; }
@@ -154,22 +159,22 @@ input {
 .claim-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .notice { text-align: center; padding: 24px 16px calc(24px + env(safe-area-inset-bottom)); color: var(--muted); }
 
-.hand-zone { flex: none; padding: 8px 16px calc(10px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, rgba(0, 0, 0, 0.35)); display: flex; flex-direction: column; gap: 8px; }
+.hand-zone { flex: none; padding: 4px 16px calc(10px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, rgba(0, 0, 0, 0.35)); display: flex; flex-direction: column; gap: 8px; }
 .actions { display: grid; grid-template-columns: 1fr 1.4fr 1fr; gap: 8px; }
 .actions > .muted { grid-column: 1 / -1; padding: 12px 0; }
 .quick { display: flex; gap: 6px; justify-content: center; }
 .quick small { font-weight: 400; opacity: 0.8; }
 
+.swipe-zone { display: flex; flex-direction: column; gap: 8px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .tray {
-  min-height: 86px; border-radius: 16px; border: 2px dashed var(--line); display: flex; align-items: center; justify-content: center; gap: 12px;
-  padding: 8px 12px; touch-action: none; user-select: none; transition: transform 0.18s ease-out, border-color 0.2s;
+  min-height: 92px; border-radius: 16px; border: 2px dashed var(--line); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  padding: 6px 12px; transition: border-color 0.2s;
 }
-.tray.filled { border-style: solid; border-color: var(--gold); background: rgba(242, 193, 78, 0.08); cursor: grab; }
+.tray.filled { border-style: solid; border-color: var(--gold); background: rgba(242, 193, 78, 0.08); }
 .tray.filled.locked { border-color: var(--line); }
-.tray.filled:active { transition: none; }
-.tray-chips { display: flex; align-items: flex-end; gap: 4px; }
+.tray-chips { display: flex; align-items: flex-end; gap: 4px; transition: transform 0.18s ease-out; }
 .tray-chip { transition: transform 0.1s; }
-.tray-label { display: flex; flex-direction: column; align-items: flex-start; }
+.tray-label { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
 .tray.filled:not(.locked) .tray-label .muted { animation: nudge 1.4s ease-in-out infinite; }
 @keyframes nudge { 50% { transform: translateY(-3px); color: var(--gold); } }
 
