@@ -66,6 +66,7 @@ const names = (s: GameState, ids: string[]) => ids.map((id) => nameOf(s, id)).jo
 
 function log(s: GameState, text: string) {
   s.log.push(text);
+  s.logSeq = (s.logSeq ?? 0) + 1;
   if (s.log.length > 40) s.log.shift();
 }
 
