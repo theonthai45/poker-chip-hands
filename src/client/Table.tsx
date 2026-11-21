@@ -3,6 +3,7 @@ import { addChips, chipCount, chipValue, clean, hasChips, money, subChips, type 
 import type { Denom, GameState, Hand, Player, Pot } from '../shared/types';
 import { Chip, ChipStack } from './Chip';
 import { MoneyInput, SettingsSheet } from './Lobby';
+import type { ChipScene } from './scene';
 import type { useRoom } from './useRoom';
 
 type Room = ReturnType<typeof useRoom>;
@@ -103,9 +104,50 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
   const [sheet, setSheet] = useState<'host' | 'settings' | 'rebuy' | 'log' | null>(null);
   const potRef = useRef<HTMLDivElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const sceneRef = useRef<ChipScene | null>(null);
+  /** 3D chips when WebGL is available, flat DOM chips otherwise. */
+  const [mode, setMode] = useState<'loading' | '3d' | 'dom'>('loading');
 
-  // Keep the tray within what I actually own.
-  const avail = useMemo(() => clean(subChips(me.chips, Object.fromEntries(Object.entries(tray).map(([d, n]) => [d, Math.min(n, me.chips[d] ?? 0)])))), [me.chips, tray]);
+  useEffect(() => {
+    let dead = false;
+    let sc: ChipScene | null = null;
+    import('./scene').then(
+      (m) => {
+        if (dead) return;
+        try {
+          sc = new m.ChipScene(canvasRef.current!, rootRef.current!);
+          sceneRef.current = sc;
+          setMode('3d');
+        } catch {
+          setMode('dom');
+        }
+      },
+      () => setMode('dom'),
+    );
+    return () => {
+      dead = true;
+      sc?.dispose();
+      sceneRef.current = null;
+    };
+  }, []);
+
+  // Chips just thrown but not yet confirmed by the server; hidden from my stack meanwhile.
+  const chipsKey = JSON.stringify(me.chips);
+  const [pendingRaw, setPending] = useState<{ key: string; chips: Chips }>({ key: '', chips: {} });
+  const pending = pendingRaw.key === chipsKey ? pendingRaw.chips : {};
+  useEffect(() => {
+    if (room.error) setPending({ key: '', chips: {} });
+  }, [room.error]);
+
+  // What is left in my stacks after the tray and pending throws.
+  const avail = useMemo(() => {
+    const out: Chips = {};
+    for (const [d, n] of Object.entries(me.chips)) out[d] = Math.max(0, n - (tray[d] ?? 0) - (pending[d] ?? 0));
+    return clean(out);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chipsKey, tray, pendingRaw]);
   useEffect(() => {
     if (!hasChips(me.chips, tray)) setTray({});
   }, [me.chips, tray]);
@@ -113,6 +155,16 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
   const fly = (chips: Denom[], from: Element | null, to: Element | null) => {
     if (!from || !to || chips.length === 0) return;
     setFlights((f) => [...f, { id: ++flightId, chips, from: from.getBoundingClientRect(), to: to.getBoundingClientRect() }]);
+  };
+  /** Chips going into the pot from somewhere on screen. */
+  const throwIn = (chips: Chips, from: Element | null) => {
+    if (sceneRef.current) sceneRef.current.throwFrom(from, chips);
+    else fly(chipList(chips, denoms), from, potRef.current);
+  };
+  /** Chips leaving the pot for a winner. */
+  const payOut = (chips: Chips, to: Element | null) => {
+    if (sceneRef.current) sceneRef.current.payout(chips, to);
+    else fly(chipList(chips, denoms), potRef.current, to);
   };
 
   // Animate other players' throws and pot payouts.
@@ -123,42 +175,56 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
     const hb = before.hand;
     const ha = state.hand;
     const cardOf = (id: string) => document.querySelector(`[data-pid="${id}"]`);
+    const scene = sceneRef.current;
+    scene?.setDenoms(denoms);
     if (ha && hb && ha.number === hb.number) {
       for (const p of state.players) {
         if (p.id === you) continue;
         const delta = (ha.contrib[p.id] ?? 0) - (hb.contrib[p.id] ?? 0);
         if (delta > 0) {
           const gained = clean(Object.fromEntries(Object.entries(ha.potChips).map(([d, n]) => [d, n - (hb.potChips[d] ?? 0)])));
-          fly(chipList(gained, denoms), cardOf(p.id), potRef.current);
+          throwIn(gained, cardOf(p.id));
         }
       }
     }
     // Winnings: whoever's stack grew without a buy-in.
     if (hb && chipValue(hb.potChips) > 0) {
-      for (const p of state.players) {
+      const sameHand = ha && ha.number === hb.number;
+      const winners = state.players.filter((p) => {
         const old = before.players.find((x) => x.id === p.id);
-        if (!old || p.buyIn !== old.buyIn) continue;
-        const gain = chipValue(p.chips) - chipValue(old.chips);
-        if (gain > 0) {
-          const won = clean(Object.fromEntries(Object.entries(p.chips).map(([d, n]) => [d, n - (old.chips[d] ?? 0)])));
-          fly(chipList(won, denoms), potRef.current, p.id === you ? trayRef.current : cardOf(p.id));
-          if (p.id === you) buzz([30, 40, 30]);
-        }
-      }
+        return old && p.buyIn === old.buyIn && chipValue(p.chips) > chipValue(old.chips);
+      });
+      // Whatever left the pot, shared out between the winners.
+      const left = clean(Object.fromEntries(Object.entries(hb.potChips).map(([d, n]) => [d, n - ((sameHand ? ha.potChips[d] : 0) ?? 0)])));
+      winners.forEach((p, i) => {
+        const share = clean(Object.fromEntries(Object.entries(left).map(([d, n]) => [d, Math.floor(n / winners.length) + (i < n % winners.length ? 1 : 0)])));
+        payOut(share, p.id === you ? trayRef.current : cardOf(p.id));
+        if (p.id === you) buzz([30, 40, 30]);
+      });
     }
+    scene?.setPot(ha?.potChips ?? {});
     if (ha?.toAct === you && hb?.toAct !== you) buzz(60);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
+  }, [state, mode]);
 
-  const throwTray = () => {
+  useEffect(() => {
+    sceneRef.current?.setOwn(
+      denoms.map((d) => ({ denom: d.value, stack: me.status === 'active' ? (avail[d.value] ?? 0) : 0, tray: tray[d.value] ?? 0 })),
+    );
+  }, [avail, tray, mode, denoms, me.status]);
+
+  const throwTray = (power = 0.5) => {
     const amount = chipValue(tray);
     if (amount === 0) return;
     if (!canThrow) return;
-    fly(chipList(tray, denoms), trayRef.current, potRef.current);
+    if (sceneRef.current) sceneRef.current.throwTray(power);
+    else fly(chipList(tray, denoms), trayRef.current, potRef.current);
     buzz(25);
     room.send({ type: 'bet', chips: tray });
+    setPending({ key: chipsKey, chips: tray });
     setTray({});
   };
+  const dom = mode === 'dom';
 
   const myTurn = !!h && h.toAct === you;
   const toCall = h && strict ? Math.max(0, h.currentBet - (h.streetBet[you] ?? 0)) : 0;
@@ -168,7 +234,8 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
   const rebuyCount = state.players.filter((p) => p.rebuyRequest || p.status === 'waiting').length;
 
   return (
-    <div className="table">
+    <div className="table" ref={rootRef}>
+      <canvas ref={canvasRef} className="scene" style={{ display: dom ? 'none' : undefined }} />
       <header className="table-top">
         <div>
           <b>{state.code}</b>
@@ -199,17 +266,23 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
         <div className="pot" ref={potRef}>
           <div className="pot-label">Pot</div>
           <div className="pot-total">{money(h ? chipValue(h.potChips) : 0)}</div>
-          <div className="muted small">{h ? chipCount(h.potChips) : 0} chips</div>
-          <div className="pot-chips">
-            {h &&
+          <div className="pile-area" data-anchor="pot">
+            {dom &&
+              h &&
+              denoms.filter((d) => h.potChips[d.value]).map((d) => <ChipStack key={d.value} value={d.value} color={d.color} count={h.potChips[d.value]} size={34} />)}
+          </div>
+          <div className="pot-counts">
+            {h && chipCount(h.potChips) > 0 ? (
               denoms
                 .filter((d) => h.potChips[d.value])
                 .map((d) => (
-                  <div key={d.value} className="pot-denom">
-                    <ChipStack value={d.value} color={d.color} count={h.potChips[d.value]} size={34} />
-                    <span>× {h.potChips[d.value]}</span>
-                  </div>
-                ))}
+                  <span key={d.value}>
+                    <i style={{ background: d.color }} />× {h.potChips[d.value]}
+                  </span>
+                ))
+            ) : (
+              <span className="muted">No chips yet</span>
+            )}
           </div>
           {strict && h && h.street !== 'showdown' && h.currentBet > 0 && (
             <div className="muted small">Current bet {money(h.currentBet)}</div>
@@ -238,7 +311,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
                   <button
                     className="btn"
                     onClick={() => {
-                      if (toCall > 0) fly(chipList(pickExact(me.chips, Math.min(toCall, myStack)) ?? {}, denoms), trayRef.current, potRef.current);
+                      if (toCall > 0) throwIn(pickExact(me.chips, Math.min(toCall, myStack)) ?? {}, trayRef.current);
                       buzz(20);
                       room.send({ type: 'call' });
                     }}
@@ -248,7 +321,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
                   <button
                     className="btn"
                     onClick={() => {
-                      fly(chipList(me.chips, denoms), trayRef.current, potRef.current);
+                      throwIn(me.chips, trayRef.current);
                       buzz([20, 30, 20]);
                       room.send({ type: 'allIn' });
                     }}
@@ -274,7 +347,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
             <QuickBets hand={h!} me={me} toCall={toCall} bb={state.settings.bigBlind} setTray={setTray} />
           )}
 
-          <Tray tray={tray} denoms={denoms} trayRef={trayRef} canThrow={canThrow} onThrow={throwTray} onRemove={(d) => setTray((t) => subChips(t, { [d]: 1 }))} label={strict && myTurn ? betLabel(h!, you, chipValue(tray), myStack) : null} />
+          <Tray dom={dom} tray={tray} denoms={denoms} trayRef={trayRef} canThrow={canThrow} onThrow={throwTray} onRemove={(d) => setTray((t) => subChips(t, { [d]: 1 }))} label={strict && myTurn ? betLabel(h!, you, chipValue(tray), myStack) : null} />
 
           <div className="my-stacks">
             {denoms.map((d) => {
@@ -289,7 +362,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
                     setTray((t) => addChips(t, { [d.value]: 1 }));
                   }}
                 >
-                  <ChipStack value={d.value} color={d.color} count={n} size={46} />
+                  {dom ? <ChipStack value={d.value} color={d.color} count={n} size={46} /> : <div className="stack-space" data-anchor={`stack:${d.value}`} />}
                   <span>× {n}</span>
                 </button>
               );
@@ -370,6 +443,7 @@ function QuickBets({ hand, me, toCall, bb, setTray }: { hand: Hand; me: Player; 
 /* ---------- swipe tray ---------- */
 
 function Tray({
+  dom,
   tray,
   denoms,
   trayRef,
@@ -378,18 +452,18 @@ function Tray({
   onRemove,
   label,
 }: {
+  dom: boolean;
   tray: Chips;
   denoms: Denom[];
   trayRef: React.RefObject<HTMLDivElement | null>;
   canThrow: boolean;
-  onThrow: () => void;
+  onThrow: (power: number) => void;
   onRemove: (d: number) => void;
   label: string | null;
 }) {
   const [dy, setDy] = useState(0);
   const drag = useRef<{ y: number; t: number; id: number; moved: boolean } | null>(null);
   const amount = chipValue(tray);
-  const list = chipList(tray, denoms);
 
   const down = (e: RPointerEvent) => {
     if (amount === 0) return;
@@ -410,7 +484,7 @@ function Tray({
     const delta = e.clientY - d.y;
     const v = delta / Math.max(1, performance.now() - d.t);
     setDy(0);
-    if (canThrow && (delta < -70 || (delta < -25 && v < -0.6))) onThrow();
+    if (canThrow && (delta < -70 || (delta < -25 && v < -0.6))) onThrow(Math.min(1, Math.max(0, (-v - 0.3) / 1.5)));
     else if (!d.moved) {
       // A plain tap on a chip in the tray puts it back.
       const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-denom]');
@@ -436,12 +510,16 @@ function Tray({
       ) : (
         <>
           <div className="tray-chips">
-            {list.slice(0, 14).map((d, i) => (
-              <div key={i} data-denom={d.value} className="tray-chip" style={{ marginLeft: i ? -22 : 0 }}>
-                <Chip value={d.value} color={d.color} size={44} />
-              </div>
-            ))}
-            {list.length > 14 && <span className="muted small">+{list.length - 14}</span>}
+            {denoms
+              .filter((d) => tray[d.value])
+              .map((d) => (
+                <div key={d.value} data-denom={d.value} className="tray-group">
+                  <div className="tray-spot" data-anchor={`tray:${d.value}`}>
+                    {dom && <ChipStack value={d.value} color={d.color} count={tray[d.value]} size={40} />}
+                  </div>
+                  <span>× {tray[d.value]}</span>
+                </div>
+              ))}
           </div>
           <div className="tray-label">
             <b>{label ?? money(amount)}</b>

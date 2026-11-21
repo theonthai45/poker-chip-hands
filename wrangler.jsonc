@@ -5,5 +5,7 @@
   "compatibility_date": "2026-11-01",
   "assets": { "not_found_handling": "single-page-application", "binding": "ASSETS", "run_worker_first": ["/ws/*"] },
   "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "Room" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  // Branch/PR previews (`wrangler preview`) get their own isolated rooms.
+  "previews": { "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "Room" }] } }
 }
