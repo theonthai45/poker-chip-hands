@@ -8,7 +8,6 @@ import { sfx } from './sound';
 const THICK = 0.17;
 const TILT = (40 * Math.PI) / 180; // camera angle away from straight down
 const CAM_DIST = 30;
-const CHIP_PX = 23; // on-screen chip radius at the player's own stacks
 const MAX_STACK = 20;
 const MAX_TRAY = 12;
 const MAX_PILE_PER_DENOM = 40;
@@ -345,6 +344,8 @@ export class ChipScene {
   private dirty = true;
   private ro: ResizeObserver;
   private drag = { x: 0, y: 0, active: false, lift: 0 };
+  /** On-screen chip radius at the player's own stacks, from the CSS `--chip` variable. */
+  private chipPx = 23;
   private slowFrames = 0;
   private quality = 2;
   private disposed = false;
@@ -457,10 +458,12 @@ export class ChipScene {
     this.dirty = true;
     // Chip size: a fixed pixel radius where the player's own stacks sit.
     const ref = first ?? pot;
+    // Stack placeholders are sized from the CSS chip radius (see .stack-space), so measure one.
+    if (first && first.width > 0) this.chipPx = first.width / 2.45;
     if (ref) {
       const cx = ref.left + ref.width / 2;
       const cy = ref.top + ref.height * 0.74;
-      const r = this.toWorld(cx, cy).distanceTo(this.toWorld(cx + CHIP_PX, cy));
+      const r = this.toWorld(cx, cy).distanceTo(this.toWorld(cx + this.chipPx, cy));
       if (r > 0.05 && Math.abs(r - this.r) > 0.002) {
         this.r = r;
         for (const c of this.own) c.mesh.scale.setScalar(r);

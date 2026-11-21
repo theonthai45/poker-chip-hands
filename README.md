@@ -10,6 +10,7 @@ Live poker chip tracker. Play with real cards; everyone's phone holds their chip
 - **Free-form**: anyone throws chips anytime, undo last throw
 - Tap (or hold) chips to pick them up, then **flick up** anywhere in the chip area to throw; chips follow your finger
 - 3D chips (three.js): bevelled chips with a different edge design per denomination, tumbling throws and a pot pile; flat fallback when WebGL is unavailable
+- Poker-table look (woven felt, padded rail) with layouts for small and large iPhones, landscape and iPad
 - Sounds for chips, checks, folds, deals, wins and your turn (mute button in the top bar)
 - All textures and sounds are generated in code, so there are no third-party assets to license
 - Winner claims the pot, others confirm (host can confirm for all)
