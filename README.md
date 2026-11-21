@@ -2,11 +2,14 @@
 
 Live poker chip tracker. Play with real cards; everyone's phone holds their chips.
 
+**Play:** https://poker-chip-hands.theonthai.workers.dev/
+
 - Create a game, share the 4-letter code / QR, players join from their phones
 - Auto-splits each buy-in into chips; host can change chips, colours, buy-in and blinds in Settings
 - **Turn order** (default): blinds, check / call / raise / fold, side pots
 - **Free-form**: anyone throws chips anytime, undo last throw
 - Tap chips to pick them up, **swipe up to throw** into the pot
+- 3D chips (three.js): stacks, tumbling throws and a pot pile, with a flat fallback when WebGL is unavailable
 - Winner claims the pot, others confirm (host can confirm for all)
 - Late joiners and rebuys with any buy-in amount, approved by the host
 - End game shows who pays whom
@@ -35,7 +38,7 @@ npx wrangler login
 npm run deploy
 ```
 
-You get a URL like `https://poker-chip-hands.<you>.workers.dev`.
+Live at https://poker-chip-hands.theonthai.workers.dev/
 
 ## Tests
 
@@ -47,4 +50,4 @@ npm test
 
 - `src/shared/` – chip maths and game rules (pure, unit-tested)
 - `src/server/` – Worker + one Durable Object per room (WebSockets)
-- `src/client/` – React app
+- `src/client/` – React app (`scene.ts` is the three.js chip scene)
