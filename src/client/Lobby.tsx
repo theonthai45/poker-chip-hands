@@ -5,6 +5,7 @@ import { CHIP_COLORS } from '../shared/game';
 import type { GameState, Settings } from '../shared/types';
 import { centsToDollars, dollarsToCents } from './App';
 import { Chip } from './Chip';
+import { HandGuide, InfoButton } from './HandGuide';
 import type { useRoom } from './useRoom';
 
 type Room = ReturnType<typeof useRoom>;
@@ -12,6 +13,7 @@ type Room = ReturnType<typeof useRoom>;
 export function Lobby({ room, state, you }: { room: Room; state: GameState; you: string }) {
   const isHost = state.hostId === you;
   const [showSettings, setShowSettings] = useState(false);
+  const [showHands, setShowHands] = useState(false);
   const url = `${location.origin}/${state.code}`;
   const [qr, setQr] = useState('');
   useEffect(() => {
@@ -35,9 +37,12 @@ export function Lobby({ room, state, you }: { room: Room; state: GameState; you:
           <div className="muted small">Game code</div>
           <div className="big-code">{state.code}</div>
         </div>
-        <button className="btn small" onClick={share}>
-          Share link
-        </button>
+        <div className="top-actions">
+          <button className="btn small" onClick={share}>
+            Share link
+          </button>
+          <InfoButton onClick={() => setShowHands(true)} />
+        </div>
       </header>
       {qr && <img className="qr" src={qr} alt={`QR code for ${url}`} />}
 
@@ -104,6 +109,7 @@ export function Lobby({ room, state, you }: { room: Room; state: GameState; you:
         )}
       </div>
 
+      {showHands && <HandGuide onClose={() => setShowHands(false)} />}
       {showSettings && <SettingsSheet room={room} state={state} onClose={() => setShowSettings(false)} />}
     </div>
   );

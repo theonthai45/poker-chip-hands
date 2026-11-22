@@ -3,6 +3,7 @@ import { addChips, chipCount, chipValue, clean, hasChips, money, subChips, type 
 import type { Denom, GameState, Hand, Player, Pot } from '../shared/types';
 import { Chip, ChipStack } from './Chip';
 import { Standings } from './Ended';
+import { HandGuide, InfoButton } from './HandGuide';
 import { MoneyInput, SeatArrows, SettingsSheet } from './Lobby';
 import type { ChipScene } from './scene';
 import { sfx } from './sound';
@@ -111,7 +112,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
     const t = setTimeout(() => setNotices((n) => n.slice(1)), notices.length > 1 ? 1300 : 2200);
     return () => clearTimeout(t);
   }, [notices]);
-  const [sheet, setSheet] = useState<'host' | 'settings' | 'rebuy' | 'log' | null>(null);
+  const [sheet, setSheet] = useState<'host' | 'settings' | 'rebuy' | 'log' | 'hands' | null>(null);
   const potRef = useRef<HTMLDivElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -352,9 +353,10 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
             </button>
           ) : (
             <button className="btn tiny" onClick={() => setSheet('rebuy')}>
-              Buy chips
+              Rebuy
             </button>
           )}
+          <InfoButton onClick={() => setSheet('hands')} />
         </div>
       </header>
 
@@ -507,6 +509,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
       {sheet === 'host' && <HostSheet state={state} room={room} onClose={() => setSheet(null)} openSettings={() => setSheet('settings')} />}
       {sheet === 'settings' && <SettingsSheet state={state} room={room} onClose={() => setSheet(null)} />}
       {sheet === 'rebuy' && <RebuySheet state={state} me={me} room={room} onClose={() => setSheet(null)} />}
+      {sheet === 'hands' && <HandGuide onClose={() => setSheet(null)} />}
       {sheet === 'log' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>

@@ -153,7 +153,30 @@ input {
   content: ''; position: absolute; inset: 7px; border: 1.5px solid rgba(255, 236, 170, 0.14); border-radius: 22px; pointer-events: none;
 }
 .table-top { display: flex; justify-content: space-between; align-items: center; padding: calc(10px + env(safe-area-inset-top)) 16px 6px; }
-.top-actions { display: flex; gap: 6px; }
+.top-actions { display: flex; gap: 6px; align-items: center; flex: none; }
+.table-top > div:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.info-btn {
+  flex: none; width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--gold); background: rgba(242, 193, 78, 0.12); color: var(--gold);
+  font: italic 800 17px/1 Georgia, 'Times New Roman', serif; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+}
+.info-btn:active { transform: scale(0.94); }
+
+/* poker hand guide */
+.sheet-head { display: flex; justify-content: space-between; align-items: center; }
+.hands { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.hands li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; background: var(--panel); border-radius: 12px; }
+.hand-no { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--gold); color: #2a1d00; font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
+.hand-body { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.hand-name { font-weight: 800; font-size: 17px; }
+.hand-cards { display: flex; gap: 4px; }
+.mini-card {
+  width: 36px; height: 48px; border-radius: 6px; background: #fbfaf5; color: #16181d; display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: 15px; line-height: 1.05; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); border: 1px solid rgba(0, 0, 0, 0.25);
+}
+.mini-card span { font-size: 17px; }
+.mini-card.red { color: #c8242c; }
+.mini-card.dim { opacity: 0.4; }
+.tips { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
 .players { display: flex; gap: 8px; overflow-x: auto; padding: 6px 16px 10px; scrollbar-width: none; flex: none; }
 .player { flex: none; min-width: 92px; background: rgba(0, 0, 0, 0.36); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; transition: 0.2s; }
 .player.turn { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold), 0 0 18px rgba(242, 193, 78, 0.4); }

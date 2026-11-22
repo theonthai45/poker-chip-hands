@@ -16,6 +16,7 @@ Live poker chip tracker. Play with real cards; everyone's phone holds their chip
 - Live scores at any time, and a who-pays-who table with a share button when the game ends
 - Host can reorder the seats in the lobby or mid-game (a hand in progress keeps its order)
 - Drag a chip from a stack into the bet area, as well as tapping or holding
+- Info button with the poker hand rankings and example cards, for new players
 - Sounds for chips, checks, folds, deals, wins and your turn (mute button in the top bar)
 - All textures and sounds are generated in code, so there are no third-party assets to license
 - Winner claims the pot, others confirm (host can confirm for all)
