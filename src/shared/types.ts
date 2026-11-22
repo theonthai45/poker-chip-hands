@@ -46,6 +46,9 @@ export interface Hand {
   number: number;
   street: Street;
   dealer: string | null;
+  /** Who posted the small and big blind this hand (turn-order mode). */
+  sb?: string | null;
+  bb?: string | null;
   inHand: string[];
   folded: string[];
   allIn: string[];

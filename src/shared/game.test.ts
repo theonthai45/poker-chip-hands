@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chipValue, pay, splitBuyIn } from './chips';
+import { chipValue, makeChange, pay, splitBuyIn } from './chips';
 import { createGame, joinGame, ledger, reduce, settlements } from './game';
 import type { Action, GameState } from './types';
 
@@ -30,11 +30,37 @@ describe('chips', () => {
   });
 });
 
+describe('making change', () => {
+  it('breaks big chips so every smaller chip is available', () => {
+    const c = makeChange({ 1000: 3 }, [50, 100, 500, 1000]);
+    expect(chipValue(c)).toBe(3000);
+    expect(c['50']).toBeGreaterThanOrEqual(4);
+    expect(c['100']).toBeGreaterThanOrEqual(4);
+    expect(c['500']).toBeGreaterThanOrEqual(4);
+  });
+  it('leaves a healthy stack alone and copes with a short one', () => {
+    expect(makeChange({ 50: 20, 100: 10 }, [50, 100])).toEqual({ 50: 20, 100: 10 });
+    expect(chipValue(makeChange({ 1000: 1 }, [50, 100, 200, 500, 1000]))).toBe(1000);
+    expect(makeChange({ 100: 1 }, [50, 100])).toEqual({ 50: 2 });
+  });
+  it('refills a player who runs out of small chips during play', () => {
+    let s = createGame('ABCD', 'p0', 'A');
+    s = joinGame(s, 'p1', 'B');
+    s = reduce(s, 'p0', { type: 'updateSettings', settings: { mode: 'free' } });
+    s = reduce(s, 'p0', { type: 'startGame' });
+    s = reduce(s, 'p0', { type: 'bet', chips: { 50: 20 } }); // throw every small chip
+    const p = s.players[0];
+    expect(p.chips['50']).toBeGreaterThanOrEqual(4);
+    expect(chipValue(p.chips)).toBe(1000);
+  });
+});
+
 describe('strict mode', () => {
   it('posts blinds and runs a hand to a fold win', () => {
     let s = setup(3);
     const h = s.hand!;
     expect(chipValue(h.potChips)).toBe(150);
+    expect([h.dealer, h.sb, h.bb]).toEqual(['p0', 'p1', 'p2']);
     // 3 players: dealer p0, SB p1, BB p2, first to act p0
     expect(h.toAct).toBe('p0');
     s = act(s, 'p0', { type: 'fold' });

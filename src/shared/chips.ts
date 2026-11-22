@@ -94,6 +94,27 @@ export function pay(stack: Chips, amount: number, denoms: number[]): { stack: Ch
   return { stack: clean(left), paid };
 }
 
+/**
+ * Break bigger chips down until the stack holds at least `min` of every smaller
+ * denomination (or runs out of bigger chips), so any bet can be made exactly.
+ * The stack's value never changes.
+ */
+export function makeChange(stack: Chips, denoms: number[], min = 4): Chips {
+  const asc = [...denoms].sort((a, b) => a - b);
+  const out: Chips = { ...stack };
+  for (let i = 0; i < asc.length - 1; i++) {
+    const d = asc[i];
+    for (let guard = 0; (out[d] ?? 0) < min && guard < 200; guard++) {
+      const big = asc.slice(i + 1).find((x) => (out[x] ?? 0) > 0);
+      if (big === undefined) break;
+      out[big] -= 1;
+      // One step down at a time: a 10 becomes two 5s before a 5 becomes smaller chips.
+      for (const [k, n] of Object.entries(greedy(big, asc.filter((x) => x < big)))) out[k] = (out[k] ?? 0) + n;
+    }
+  }
+  return clean(out);
+}
+
 export function money(cents: number): string {
   const sign = cents < 0 ? '-' : '';
   const abs = Math.abs(cents);

@@ -470,7 +470,10 @@ export class ChipScene {
         for (const c of this.pile) c.mesh.scale.setScalar(r);
       }
     }
-    if (pot) {
+    if (pot && pot.height < 8) {
+      // Pot area is folded away (between hands): keep the pile where it was, hide the ring.
+      this.ring.visible = false;
+    } else if (pot) {
       this.toWorld(pot.left + pot.width / 2, pot.top + pot.height * 0.5, this.potCentre);
       this.ring.position.set(this.potCentre.x, 0.002, this.potCentre.z);
       const cx = pot.left + pot.width / 2;

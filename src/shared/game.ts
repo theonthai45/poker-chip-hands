@@ -1,4 +1,4 @@
-import { addChips, chipValue, clean, greedy, hasChips, money, pay, splitBuyIn, subChips, type Chips } from './chips';
+import { addChips, chipValue, clean, greedy, hasChips, makeChange, money, pay, splitBuyIn, subChips, type Chips } from './chips';
 import type { Action, GameState, Hand, Player, Pot, Settings, Street } from './types';
 
 export class GameError extends Error {}
@@ -235,6 +235,8 @@ function deal(s: GameState) {
   h.inHand = s.players.map((p) => p.id).filter((id) => seated.includes(id));
   const sb = seated.length === 2 ? dealer : nextSeat(s, seated, dealer)!;
   const bb = nextSeat(s, seated, sb)!;
+  h.sb = sb;
+  h.bb = bb;
   for (const [id, blind] of [
     [sb, s.settings.smallBlind],
     [bb, s.settings.bigBlind],
@@ -519,6 +521,11 @@ export function reduce(state: GameState, actorId: string, action: Action): GameS
     }
     default:
       fail('Unknown action');
+  }
+  // Keep every seated player supplied with small chips by breaking bigger ones.
+  if (s.phase === 'playing') {
+    const denoms = denomsOf(s);
+    for (const p of s.players) if (p.status === 'active') p.chips = makeChange(p.chips, denoms);
   }
   return s;
 }

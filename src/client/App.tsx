@@ -121,7 +121,7 @@ function Room({ code, name, create }: { code: string; name: string; create: bool
   else if (!state || !you) body = <div className="screen center muted">Connecting…</div>;
   else if (state.phase === 'lobby') body = <Lobby room={room} state={state} you={you} />;
   else if (state.phase === 'playing') body = <Table room={room} state={state} you={you} />;
-  else body = <Ended state={state} />;
+  else body = <Ended state={state} you={you} />;
 
   return (
     <>
