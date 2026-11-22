@@ -3,7 +3,7 @@ import { addChips, chipCount, chipValue, clean, hasChips, money, subChips, type 
 import type { Denom, GameState, Hand, Player, Pot } from '../shared/types';
 import { Chip, ChipStack } from './Chip';
 import { Standings } from './Ended';
-import { MoneyInput, SettingsSheet } from './Lobby';
+import { MoneyInput, SeatArrows, SettingsSheet } from './Lobby';
 import type { ChipScene } from './scene';
 import { sfx } from './sound';
 import type { useRoom } from './useRoom';
@@ -280,6 +280,26 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
     }
     void dx;
   };
+  const addChip = (denom: number) => {
+    const limit = (me.chips[denom] ?? 0) - (pending[denom] ?? 0);
+    if ((tray[denom] ?? 0) >= limit) return;
+    sfx.pick();
+    buzz(8);
+    setTray(addChips(tray, { [denom]: 1 }));
+  };
+  /** True while a chip is being dragged from a stack toward the bet area. */
+  const [dropping, setDropping] = useState(false);
+  const onStackDrag = (denom: number, x: number, y: number) => {
+    sceneRef.current?.setHeld(denom, x, y);
+    if (!dropping) setDropping(true);
+  };
+  const onStackDrop = (denom: number, _x: number, y: number, cancelled: boolean) => {
+    setDropping(false);
+    sceneRef.current?.setHeld(null, 0, 0);
+    // Anywhere level with the bet area or above it counts as dropping the chip in.
+    const box = trayRef.current?.getBoundingClientRect();
+    if (!cancelled && box && y < box.bottom + 8) addChip(denom);
+  };
   const throwTray = (vx = 0, vy = -1) => {
     const amount = chipValue(tray);
     if (amount === 0) return;
@@ -438,7 +458,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
             <QuickBets hand={h!} me={me} toCall={toCall} bb={state.settings.bigBlind} setTray={setTray} />
           )}
 
-          <SwipeZone enabled={chipValue(tray) > 0} onDrag={onDrag} onRelease={onRelease}>
+          <SwipeZone enabled={chipValue(tray) > 0} onDrag={onDrag} onRelease={onRelease} onStackDrag={onStackDrag} onStackDrop={onStackDrop}>
             <Tray
               dom={dom}
               tray={tray}
@@ -446,6 +466,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
               trayRef={trayRef}
               canThrow={canThrow}
               dragPx={dragPx}
+              dropping={dropping}
               onRemove={(d) => {
                 sfx.pick();
                 setTray((t) => (t[d] ? subChips(t, { [d]: 1 }) : t));
@@ -459,13 +480,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
                   d={d}
                   dom={dom}
                   count={avail[d.value] ?? 0}
-                  onAdd={() => {
-                    const limit = (me.chips[d.value] ?? 0) - (pending[d.value] ?? 0);
-                    if ((tray[d.value] ?? 0) >= limit) return;
-                    sfx.pick();
-                    buzz(8);
-                    setTray(addChips(tray, { [d.value]: 1 }));
-                  }}
+                  onAdd={() => addChip(d.value)}
                 />
               ))}
             </div>
@@ -558,15 +573,20 @@ function SwipeZone({
   enabled,
   onDrag,
   onRelease,
+  onStackDrag,
+  onStackDrop,
   children,
 }: {
   enabled: boolean;
   onDrag: (dx: number, dy: number) => void;
   /** Finger lifted after a drag: total travel in px and release velocity in px/ms. */
   onRelease: (dx: number, dy: number, vx: number, vy: number) => void;
+  /** A chip is being dragged off one of the stacks; x/y is the finger position. */
+  onStackDrag: (denom: number, x: number, y: number) => void;
+  onStackDrop: (denom: number, x: number, y: number, cancelled: boolean) => void;
   children: React.ReactNode;
 }) {
-  const g = useRef<{ id: number; x: number; y: number; dragging: boolean; samples: { x: number; y: number; t: number }[] } | null>(null);
+  const g = useRef<{ id: number; x: number; y: number; dragging: boolean; denom: number | null; samples: { x: number; y: number; t: number }[] } | null>(null);
   const suppressClick = useRef(false);
 
   const end = (e: RPointerEvent, cancelled: boolean) => {
@@ -575,6 +595,7 @@ function SwipeZone({
     g.current = null;
     if (!d.dragging) return;
     swiping = false;
+    if (d.denom !== null) return onStackDrop(d.denom, e.clientX, e.clientY, cancelled);
     // Velocity over the last ~90 ms of movement, which is what a flick feels like.
     const now = performance.now();
     const recent = d.samples.filter((s) => now - s.t < 90);
@@ -592,8 +613,12 @@ function SwipeZone({
       className="swipe-zone"
       onPointerDown={(e) => {
         suppressClick.current = false;
-        if (!enabled || g.current) return;
-        g.current = { id: e.pointerId, x: e.clientX, y: e.clientY, dragging: false, samples: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
+        if (g.current) return;
+        // Starting on a stack drags one chip off it; starting anywhere else moves the bet.
+        const stack = (e.target as Element).closest('[data-stack]:not(:disabled)');
+        const denom = stack ? Number(stack.getAttribute('data-stack')) : null;
+        if (denom === null && !enabled) return;
+        g.current = { id: e.pointerId, x: e.clientX, y: e.clientY, dragging: false, denom, samples: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
       }}
       onPointerMove={(e) => {
         const d = g.current;
@@ -601,7 +626,7 @@ function SwipeZone({
         const dx = e.clientX - d.x;
         const dy = e.clientY - d.y;
         if (!d.dragging) {
-          if (dy > -8 || -dy < Math.abs(dx) * 0.6) return;
+          if (d.denom !== null ? Math.hypot(dx, dy) < 10 : dy > -8 || -dy < Math.abs(dx) * 0.6) return;
           d.dragging = true;
           swiping = true;
           suppressClick.current = true;
@@ -609,7 +634,8 @@ function SwipeZone({
         }
         d.samples.push({ x: e.clientX, y: e.clientY, t: performance.now() });
         if (d.samples.length > 12) d.samples.shift();
-        onDrag(dx, Math.min(dy, 12));
+        if (d.denom !== null) onStackDrag(d.denom, e.clientX, e.clientY);
+        else onDrag(dx, Math.min(dy, 12));
       }}
       onPointerUp={(e) => end(e, false)}
       onPointerCancel={(e) => end(e, true)}
@@ -638,6 +664,7 @@ function StackButton({ d, count, dom, onAdd }: { d: Denom; count: number; dom: b
   return (
     <button
       className="my-stack"
+      data-stack={d.value}
       disabled={count === 0}
       onPointerDown={() => {
         stop();
@@ -670,6 +697,7 @@ function Tray({
   onRemove,
   label,
   dragPx,
+  dropping,
 }: {
   dom: boolean;
   tray: Chips;
@@ -680,12 +708,14 @@ function Tray({
   label: string | null;
   /** Flat-chip fallback only: how far the chips are being dragged. */
   dragPx: { x: number; y: number } | null;
+  /** A chip is being dragged over from a stack. */
+  dropping: boolean;
 }) {
   const amount = chipValue(tray);
   return (
-    <div ref={trayRef} className={`tray ${amount ? 'filled' : ''} ${canThrow ? '' : 'locked'}`}>
+    <div ref={trayRef} className={`tray ${amount ? 'filled' : ''} ${canThrow ? '' : 'locked'} ${dropping ? 'drop' : ''}`}>
       {amount === 0 ? (
-        <span className="muted small">Tap your chips to pick them up · hold to pick faster</span>
+        <span className="muted small">{dropping ? 'Drop the chip here' : 'Tap or drag your chips here · hold to pick faster'}</span>
       ) : (
         <>
           <div className="tray-chips" style={dragPx ? { transform: `translate(${dragPx.x}px, ${dragPx.y}px)`, transition: 'none' } : undefined}>
@@ -781,12 +811,18 @@ function lastWins(log: string[]): string[] {
 
 /* ---------- players ---------- */
 
+/** Everyone else, in seating order starting with the player who acts after `you`. */
+function seatedAfter(players: Player[], you: string): Player[] {
+  const i = players.findIndex((p) => p.id === you);
+  return i < 0 ? players : [...players.slice(i + 1), ...players.slice(0, i)];
+}
+
 function Players({ state, you, online }: { state: GameState; you: string; online: string[] }) {
   const h = state.hand;
   return (
     <div className="players">
-      {state.players
-        .filter((p) => p.id !== you && p.status !== 'out')
+      {seatedAfter(state.players, you)
+        .filter((p) => p.status !== 'out')
         .map((p) => {
           const folded = h?.folded.includes(p.id);
           const bet = h ? (h.street === 'open' ? h.contrib[p.id] : h.streetBet[p.id]) ?? 0 : 0;
@@ -893,9 +929,12 @@ function HostSheet({ state, room, onClose, openSettings }: { state: GameState; r
         <p className="muted small">
           New players join with code <b>{state.code}</b>, then appear here for chips.
         </p>
+        <p className="muted small">
+          Arrows change the seating order{h && state.settings.mode === 'strict' ? '; the new order applies from the next hand' : ''}.
+        </p>
         <ul className="list host-list">
-          {state.players.map((p) => (
-            <HostRow key={p.id} p={p} state={state} room={room} />
+          {state.players.map((p, i) => (
+            <HostRow key={p.id} p={p} index={i} state={state} room={room} />
           ))}
         </ul>
         {state.settings.mode === 'strict' && h?.toAct && (
@@ -921,13 +960,14 @@ function HostSheet({ state, room, onClose, openSettings }: { state: GameState; r
   );
 }
 
-function HostRow({ p, state, room }: { p: Player; state: GameState; room: Room }) {
+function HostRow({ p, index, state, room }: { p: Player; index: number; state: GameState; room: Room }) {
   const [amt, setAmt] = useState(p.rebuyRequest ?? state.settings.defaultBuyIn);
   useEffect(() => {
     if (p.rebuyRequest) setAmt(p.rebuyRequest);
   }, [p.rebuyRequest]);
   return (
     <li className={p.rebuyRequest || p.status === 'waiting' ? 'highlight' : ''}>
+      <SeatArrows state={state} room={room} index={index} />
       <div className="grow">
         <div>
           <b>{p.name}</b> <span className="muted small">{p.status === 'out' ? 'cashed out' : money(chipValue(p.chips))}</span>

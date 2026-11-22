@@ -121,6 +121,31 @@ describe('strict mode', () => {
   });
 });
 
+describe('seating', () => {
+  it('lets the host reorder seats in the lobby', () => {
+    let s = createGame('ABCD', 'p0', 'A');
+    s = joinGame(s, 'p1', 'B');
+    s = joinGame(s, 'p2', 'C');
+    expect(() => reduce(s, 'p1', { type: 'moveSeat', playerId: 'p2', to: 0 })).toThrow(/host/);
+    s = reduce(s, 'p0', { type: 'moveSeat', playerId: 'p2', to: 0 });
+    expect(s.players.map((p) => p.id)).toEqual(['p2', 'p0', 'p1']);
+    s = reduce(s, 'p0', { type: 'startGame' });
+    expect([s.hand!.dealer, s.hand!.sb, s.hand!.bb]).toEqual(['p2', 'p0', 'p1']);
+  });
+  it('keeps the turn order of a hand in progress and uses the new seats next hand', () => {
+    let s = setup(3); // dealer p0, SB p1, BB p2, p0 to act
+    s = act(s, 'p0', { type: 'moveSeat', playerId: 'p2', to: 0 }); // seats now p2, p0, p1
+    s = act(s, 'p0', { type: 'call' });
+    expect(s.hand!.toAct).toBe('p1'); // still the order the hand was dealt in
+    s = act(s, 'p1', { type: 'fold' });
+    s = act(s, 'p2', { type: 'fold' });
+    expect(s.hand).toBeNull();
+    s = act(s, 'p0', { type: 'deal' });
+    // New seating p2, p0, p1: the button moves from p0 to p1.
+    expect([s.hand!.dealer, s.hand!.sb, s.hand!.bb]).toEqual(['p1', 'p2', 'p0']);
+  });
+});
+
 describe('free mode', () => {
   it('throws, undoes, claims', () => {
     let s = setup(3, 'free');

@@ -117,9 +117,8 @@ function validChips(s: GameState, chips: Chips): Chips {
 }
 
 /** First id in `candidates` sitting after `afterId`, going round the table. */
-function nextSeat(s: GameState, candidates: string[], afterId: string | null): string | null {
+function nextSeat(order: string[], candidates: string[], afterId: string | null): string | null {
   if (candidates.length === 0) return null;
-  const order = s.players.map((p) => p.id);
   const start = afterId ? order.indexOf(afterId) : -1;
   for (let i = 1; i <= order.length; i++) {
     const id = order[(start + i + order.length) % order.length];
@@ -229,12 +228,13 @@ function deal(s: GameState) {
   const seated = s.players.filter((p) => p.status === 'active' && stackOf(p) > 0).map((p) => p.id);
   if (seated.length < 2) fail('Need at least 2 players with chips');
   const h = emptyHand(s, 'preflop');
-  const dealer = nextSeat(s, seated, s.dealerId)!;
+  const table = s.players.map((p) => p.id);
+  const dealer = nextSeat(table, seated, s.dealerId)!;
   s.dealerId = dealer;
   h.dealer = dealer;
   h.inHand = s.players.map((p) => p.id).filter((id) => seated.includes(id));
-  const sb = seated.length === 2 ? dealer : nextSeat(s, seated, dealer)!;
-  const bb = nextSeat(s, seated, sb)!;
+  const sb = seated.length === 2 ? dealer : nextSeat(table, seated, dealer)!;
+  const bb = nextSeat(table, seated, sb)!;
   h.sb = sb;
   h.bb = bb;
   for (const [id, blind] of [
@@ -267,7 +267,7 @@ function advance(s: GameState, h: Hand, lastId: string) {
   // Nobody left to bet against: skip the remaining betting.
   const noContest = canAct.length === 1 && (h.streetBet[canAct[0]] ?? 0) >= h.currentBet;
   if (pending.length > 0 && !noContest) {
-    h.toAct = nextSeat(s, pending, lastId);
+    h.toAct = nextSeat(h.inHand, pending, lastId);
     return;
   }
   const order: Street[] = ['preflop', 'flop', 'turn', 'river'];
@@ -278,7 +278,7 @@ function advance(s: GameState, h: Hand, lastId: string) {
     h.minRaise = s.settings.bigBlind;
     h.acted = [];
     if (canAct.length >= 2) {
-      h.toAct = nextSeat(s, canAct, h.dealer);
+      h.toAct = nextSeat(h.inHand, canAct, h.dealer);
       log(s, `— ${h.street[0].toUpperCase()}${h.street.slice(1)} —`);
       return;
     }
@@ -379,6 +379,18 @@ export function reduce(state: GameState, actorId: string, action: Action): GameS
       if (s.phase !== 'lobby') fail('Game already started');
       if (action.playerId === s.hostId) fail('Host cannot be removed');
       s.players = s.players.filter((p) => p.id !== action.playerId);
+      break;
+    }
+    case 'moveSeat': {
+      hostOnly();
+      if (s.phase === 'ended') fail('Game has ended');
+      const from = s.players.findIndex((p) => p.id === action.playerId);
+      if (from < 0) fail('Player not found');
+      if (!Number.isInteger(action.to)) fail('Invalid seat');
+      const to = Math.max(0, Math.min(s.players.length - 1, action.to));
+      // A hand in progress keeps the seating it was dealt with; this takes effect at the next deal.
+      const [p] = s.players.splice(from, 1);
+      s.players.splice(to, 0, p);
       break;
     }
     case 'startGame': {

@@ -62,9 +62,13 @@ export function Lobby({ room, state, you }: { room: Room; state: GameState; you:
       </div>
 
       <h3>Players ({state.players.length})</h3>
+      <p className="muted small seat-note">
+        {isHost ? 'Use the arrows to match the order you are sitting in. Play goes down the list.' : 'Listed in seating order. Play goes down the list.'}
+      </p>
       <ul className="list">
-        {state.players.map((p) => (
+        {state.players.map((p, i) => (
           <li key={p.id}>
+            {isHost ? <SeatArrows state={state} room={room} index={i} /> : <span className="seat-no">{i + 1}</span>}
             <span className={`dot ${room.online.includes(p.id) ? 'on' : ''}`} />
             <span className="grow">
               {p.name}
@@ -102,6 +106,23 @@ export function Lobby({ room, state, you }: { room: Room; state: GameState; you:
 
       {showSettings && <SettingsSheet room={room} state={state} onClose={() => setShowSettings(false)} />}
     </div>
+  );
+}
+
+/** Seat number with up/down buttons that move a player one seat earlier or later. */
+export function SeatArrows({ state, room, index }: { state: GameState; room: Room; index: number }) {
+  const p = state.players[index];
+  const move = (to: number) => room.send({ type: 'moveSeat', playerId: p.id, to });
+  return (
+    <span className="seat-arrows">
+      <button className="seat-btn" aria-label={`Move ${p.name} up`} disabled={index === 0} onClick={() => move(index - 1)}>
+        ▲
+      </button>
+      <span className="seat-no">{index + 1}</span>
+      <button className="seat-btn" aria-label={`Move ${p.name} down`} disabled={index === state.players.length - 1} onClick={() => move(index + 1)}>
+        ▼
+      </button>
+    </span>
   );
 }
 

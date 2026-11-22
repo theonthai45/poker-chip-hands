@@ -346,6 +346,7 @@ export class ChipScene {
   private drag = { x: 0, y: 0, active: false, lift: 0 };
   /** On-screen chip radius at the player's own stacks, from the CSS `--chip` variable. */
   private chipPx = 23;
+  private held: { denom: number; x: number; y: number } | null = null;
   private slowFrames = 0;
   private quality = 2;
   private disposed = false;
@@ -567,6 +568,12 @@ export class ChipScene {
     this.dirty = true;
   }
 
+  /** One chip lifted off a stack and carried under the finger (screen px), or null to let go. */
+  setHeld(denom: number | null, x: number, y: number) {
+    this.held = denom === null ? null : { denom, x, y };
+    this.dirty = true;
+  }
+
   /** Tray chips follow the finger by this many screen pixels while dragging. */
   setDrag(x: number, y: number, active: boolean) {
     this.drag.x = x;
@@ -783,7 +790,19 @@ export class ChipScene {
     this.drag.lift += ((this.drag.active ? 1 : 0) - this.drag.lift) * (1 - Math.exp(-dt * 25));
     if (this.drag.lift > 0.01 && this.drag.lift < 0.99) moving = true;
     const cache = new Map<string, THREE.Vector3 | null>();
+    // The chip being carried: the top one of that stack.
+    let carried: OwnChip | null = null;
+    if (this.held) {
+      for (const c of this.own) if (c.place === 'stack' && c.denom === this.held.denom && (!carried || c.index > carried.index)) carried = c;
+    }
     for (const c of this.own) {
+      if (c === carried && this.held) {
+        const at = this.toWorld(this.held.x, this.held.y);
+        c.mesh.visible = true;
+        c.mesh.position.set(at.x, this.r * 1.3, at.z);
+        moving = true;
+        continue;
+      }
       const key = `${c.place}:${c.denom}`;
       if (!cache.has(key)) {
         const tray = c.place === 'tray';

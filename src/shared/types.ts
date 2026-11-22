@@ -82,6 +82,8 @@ export type Action =
   | { type: 'updateSettings'; settings: Partial<Settings> }
   | { type: 'setPlanned'; playerId: string; amount: number | null }
   | { type: 'kick'; playerId: string }
+  /** Move a player to a new seat (0 = first). Host only; applies from the next hand. */
+  | { type: 'moveSeat'; playerId: string; to: number }
   | { type: 'startGame' }
   | { type: 'addChips'; playerId: string; amount: number }
   | { type: 'requestRebuy'; amount: number }
