@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEven
 import { addChips, chipCount, chipValue, clean, hasChips, money, subChips, type Chips } from '../shared/chips';
 import type { Denom, GameState, Hand, Player, Pot } from '../shared/types';
 import { Chip, ChipStack } from './Chip';
-import { MoneyInput, SettingsSheet } from './Lobby';
+import { Standings } from './Ended';
+import { HandGuide, InfoButton } from './HandGuide';
+import { MoneyInput, SeatArrows, SettingsSheet } from './Lobby';
 import type { ChipScene } from './scene';
 import { sfx } from './sound';
 import type { useRoom } from './useRoom';
@@ -103,7 +105,14 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
   const [tray, setTray] = useState<Chips>({});
   const [flights, setFlights] = useState<Flight[]>([]);
   const [muted, setMuted] = useState(sfx.muted);
-  const [sheet, setSheet] = useState<'host' | 'settings' | 'rebuy' | 'log' | null>(null);
+  /** Big on-table announcements (new hand, new street, winner), shown one at a time. */
+  const [notices, setNotices] = useState<Notice[]>([]);
+  useEffect(() => {
+    if (notices.length === 0) return;
+    const t = setTimeout(() => setNotices((n) => n.slice(1)), notices.length > 1 ? 1300 : 2200);
+    return () => clearTimeout(t);
+  }, [notices]);
+  const [sheet, setSheet] = useState<'host' | 'settings' | 'rebuy' | 'log' | 'hands' | null>(null);
   const potRef = useRef<HTMLDivElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -173,6 +182,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
 
   // Animate other players' throws and pot payouts.
   const prev = useRef<GameState>(state);
+  const announcedMount = useRef(false);
   useEffect(() => {
     const before = prev.current;
     prev.current = state;
@@ -212,8 +222,30 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
       sfx.turn();
     }
     // Sounds for what just happened, read off the new log lines.
-    const added = Math.min(state.log.length, (state.logSeq ?? 0) - (before.logSeq ?? 0));
+    let added = Math.min(state.log.length, (state.logSeq ?? 0) - (before.logSeq ?? 0));
+    // Arriving at the table as a hand starts (e.g. the very first hand): announce it too.
+    if (!announcedMount.current) {
+      announcedMount.current = true;
+      const start = state.log.findLastIndex((l) => /^Hand \d+:/.test(l));
+      if (ha?.street === 'preflop' && start >= 0) added = state.log.length - start;
+    }
+    const fresh: Notice[] = [];
+    const nm = (id?: string | null) => (id === you ? 'You' : state.players.find((p) => p.id === id)?.name ?? '?');
     for (const line of added > 0 ? state.log.slice(-added) : []) {
+      const street = line.match(/^— (\w+) —$/)?.[1].toLowerCase();
+      const win = line.match(/^(.*) (wins|split) (.*)$/);
+      if (/^Hand \d+:/.test(line) && ha) {
+        const sub = ha.dealer === ha.sb ? `Dealer & small blind: ${nm(ha.dealer)} · Big blind: ${nm(ha.bb)}` : `Dealer: ${nm(ha.dealer)} · Small blind: ${nm(ha.sb)} · Big blind: ${nm(ha.bb)}`;
+        fresh.push({ id: ++noticeId, title: `Hand ${ha.number}`, sub, tone: 'hand' });
+      } else if (street) {
+        const info = STREETS.find((x) => x.key === street);
+        if (info) fresh.push({ id: ++noticeId, title: info.label, sub: info.hint, tone: 'street' });
+      } else if (win) {
+        const mine = win[1].split(' & ').includes(me.name);
+        const who = win[1] === me.name ? 'You' : win[1];
+        const verb = win[2] === 'split' ? 'split' : who === 'You' ? 'win' : 'wins';
+        fresh.push({ id: ++noticeId, title: `${who} ${verb} ${win[3]}`, sub: mine ? 'Nice hand!' : undefined, tone: 'win' });
+      }
       if (/ checks$/.test(line)) sfx.knock();
       else if (/ folds$/.test(line)) sfx.fold();
       else if (/^Hand \d+:/.test(line)) sfx.deal();
@@ -222,6 +254,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
       else if (/ (wins|split) /.test(line)) sfx.win(line.split(/ (wins|split) /)[0].split(' & ').includes(me.name));
       else if (/ (joined|buys in for) /.test(line) || / joined$/.test(line)) sfx.join();
     }
+    if (fresh.length) setNotices((n) => [...n, ...fresh].slice(-4));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, mode]);
 
@@ -247,6 +280,26 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
       sfx.error();
     }
     void dx;
+  };
+  const addChip = (denom: number) => {
+    const limit = (me.chips[denom] ?? 0) - (pending[denom] ?? 0);
+    if ((tray[denom] ?? 0) >= limit) return;
+    sfx.pick();
+    buzz(8);
+    setTray(addChips(tray, { [denom]: 1 }));
+  };
+  /** True while a chip is being dragged from a stack toward the bet area. */
+  const [dropping, setDropping] = useState(false);
+  const onStackDrag = (denom: number, x: number, y: number) => {
+    sceneRef.current?.setHeld(denom, x, y);
+    if (!dropping) setDropping(true);
+  };
+  const onStackDrop = (denom: number, _x: number, y: number, cancelled: boolean) => {
+    setDropping(false);
+    sceneRef.current?.setHeld(null, 0, 0);
+    // Anywhere level with the bet area or above it counts as dropping the chip in.
+    const box = trayRef.current?.getBoundingClientRect();
+    if (!cancelled && box && y < box.bottom + 8) addChip(denom);
   };
   const throwTray = (vx = 0, vy = -1) => {
     const amount = chipValue(tray);
@@ -277,7 +330,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
           <b>{state.code}</b>
           <span className="muted small">
             {' '}
-            · {strict ? (h ? `Hand ${h.number} · ${h.street}` : 'Between hands') : 'Free-form'}
+            · {strict ? (h ? `Hand ${h.number}` : `Hand ${state.handCount} done`) : 'Free-form'}
           </span>
         </div>
         <div className="top-actions">
@@ -292,7 +345,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
             {muted ? '🔇' : '🔊'}
           </button>
           <button className="btn tiny" onClick={() => setSheet('log')}>
-            Log
+            Scores
           </button>
           {isHost ? (
             <button className="btn tiny" onClick={() => setSheet('host')}>
@@ -300,17 +353,25 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
             </button>
           ) : (
             <button className="btn tiny" onClick={() => setSheet('rebuy')}>
-              Buy chips
+              Rebuy
             </button>
           )}
+          <InfoButton onClick={() => setSheet('hands')} />
         </div>
       </header>
 
       <Players state={state} you={you} online={room.online} />
 
       <div className="felt">
-        <div className="pot" ref={potRef}>
-          <div className="pot-label">Pot</div>
+        {strict && <StreetBar hand={h} />}
+        {notices[0] && (
+          <div key={notices[0].id} className={`announce ${notices[0].tone} ${notices.length > 1 ? 'quick-out' : ''}`} role="status">
+            <div className="announce-title">{notices[0].title}</div>
+            {notices[0].sub && <div className="announce-sub">{notices[0].sub}</div>}
+          </div>
+        )}
+        <div className={`pot ${strict && !h ? 'idle' : ''}`} ref={potRef}>
+          <div className="pot-label">{strict ? streetHint(h) : 'Pot'}</div>
           <div className="pot-total">{money(h ? chipValue(h.potChips) : 0)}</div>
           <div className="pile-area" data-anchor="pot">
             {dom &&
@@ -333,9 +394,18 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
         </div>
         {h && <Claims state={state} hand={h} you={you} room={room} />}
         {strict && !h && (
-          <button className="btn primary deal" disabled={me.status !== 'active'} onClick={() => room.send({ type: 'deal' })}>
-            Deal next hand
-          </button>
+          <div className="between">
+            <div className="between-title">Hand {state.handCount} complete</div>
+            {lastWins(state.log).map((l, i) => (
+              <div key={i} className="between-win">
+                {l}
+              </div>
+            ))}
+            <button className="btn primary deal" disabled={me.status !== 'active'} onClick={() => room.send({ type: 'deal' })}>
+              Deal hand {state.handCount + 1}
+            </button>
+            <div className="muted small">Collect the cards and pass the deck on. The dealer button moves one seat.</div>
+          </div>
         )}
       </div>
 
@@ -390,7 +460,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
             <QuickBets hand={h!} me={me} toCall={toCall} bb={state.settings.bigBlind} setTray={setTray} />
           )}
 
-          <SwipeZone enabled={chipValue(tray) > 0} onDrag={onDrag} onRelease={onRelease}>
+          <SwipeZone enabled={chipValue(tray) > 0} onDrag={onDrag} onRelease={onRelease} onStackDrag={onStackDrag} onStackDrop={onStackDrop}>
             <Tray
               dom={dom}
               tray={tray}
@@ -398,6 +468,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
               trayRef={trayRef}
               canThrow={canThrow}
               dragPx={dragPx}
+              dropping={dropping}
               onRemove={(d) => {
                 sfx.pick();
                 setTray((t) => (t[d] ? subChips(t, { [d]: 1 }) : t));
@@ -411,18 +482,13 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
                   d={d}
                   dom={dom}
                   count={avail[d.value] ?? 0}
-                  onAdd={() => {
-                    const limit = (me.chips[d.value] ?? 0) - (pending[d.value] ?? 0);
-                    if ((tray[d.value] ?? 0) >= limit) return;
-                    sfx.pick();
-                    buzz(8);
-                    setTray(addChips(tray, { [d.value]: 1 }));
-                  }}
+                  onAdd={() => addChip(d.value)}
                 />
               ))}
             </div>
           </SwipeZone>
           <div className="my-total">
+            <Roles hand={h} id={you} long />
             <span>Your stack</span> <b>{money(myStack)}</b>
             {!strict && h && (h.throws[you]?.length ?? 0) > 0 && (
               <button className="btn tiny" onClick={() => room.send({ type: 'undo' })}>
@@ -443,10 +509,13 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
       {sheet === 'host' && <HostSheet state={state} room={room} onClose={() => setSheet(null)} openSettings={() => setSheet('settings')} />}
       {sheet === 'settings' && <SettingsSheet state={state} room={room} onClose={() => setSheet(null)} />}
       {sheet === 'rebuy' && <RebuySheet state={state} me={me} room={room} onClose={() => setSheet(null)} />}
+      {sheet === 'hands' && <HandGuide onClose={() => setSheet(null)} />}
       {sheet === 'log' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
-          <div className="sheet">
-            <h2>Log</h2>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <h2>Scores</h2>
+            <Standings state={state} you={you} live />
+            <h3>Hand history</h3>
             <ul className="log">
               {[...state.log].reverse().map((l, i) => (
                 <li key={i}>{l}</li>
@@ -507,15 +576,20 @@ function SwipeZone({
   enabled,
   onDrag,
   onRelease,
+  onStackDrag,
+  onStackDrop,
   children,
 }: {
   enabled: boolean;
   onDrag: (dx: number, dy: number) => void;
   /** Finger lifted after a drag: total travel in px and release velocity in px/ms. */
   onRelease: (dx: number, dy: number, vx: number, vy: number) => void;
+  /** A chip is being dragged off one of the stacks; x/y is the finger position. */
+  onStackDrag: (denom: number, x: number, y: number) => void;
+  onStackDrop: (denom: number, x: number, y: number, cancelled: boolean) => void;
   children: React.ReactNode;
 }) {
-  const g = useRef<{ id: number; x: number; y: number; dragging: boolean; samples: { x: number; y: number; t: number }[] } | null>(null);
+  const g = useRef<{ id: number; x: number; y: number; dragging: boolean; denom: number | null; samples: { x: number; y: number; t: number }[] } | null>(null);
   const suppressClick = useRef(false);
 
   const end = (e: RPointerEvent, cancelled: boolean) => {
@@ -524,6 +598,7 @@ function SwipeZone({
     g.current = null;
     if (!d.dragging) return;
     swiping = false;
+    if (d.denom !== null) return onStackDrop(d.denom, e.clientX, e.clientY, cancelled);
     // Velocity over the last ~90 ms of movement, which is what a flick feels like.
     const now = performance.now();
     const recent = d.samples.filter((s) => now - s.t < 90);
@@ -541,8 +616,12 @@ function SwipeZone({
       className="swipe-zone"
       onPointerDown={(e) => {
         suppressClick.current = false;
-        if (!enabled || g.current) return;
-        g.current = { id: e.pointerId, x: e.clientX, y: e.clientY, dragging: false, samples: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
+        if (g.current) return;
+        // Starting on a stack drags one chip off it; starting anywhere else moves the bet.
+        const stack = (e.target as Element).closest('[data-stack]:not(:disabled)');
+        const denom = stack ? Number(stack.getAttribute('data-stack')) : null;
+        if (denom === null && !enabled) return;
+        g.current = { id: e.pointerId, x: e.clientX, y: e.clientY, dragging: false, denom, samples: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
       }}
       onPointerMove={(e) => {
         const d = g.current;
@@ -550,7 +629,7 @@ function SwipeZone({
         const dx = e.clientX - d.x;
         const dy = e.clientY - d.y;
         if (!d.dragging) {
-          if (dy > -8 || -dy < Math.abs(dx) * 0.6) return;
+          if (d.denom !== null ? Math.hypot(dx, dy) < 10 : dy > -8 || -dy < Math.abs(dx) * 0.6) return;
           d.dragging = true;
           swiping = true;
           suppressClick.current = true;
@@ -558,7 +637,8 @@ function SwipeZone({
         }
         d.samples.push({ x: e.clientX, y: e.clientY, t: performance.now() });
         if (d.samples.length > 12) d.samples.shift();
-        onDrag(dx, Math.min(dy, 12));
+        if (d.denom !== null) onStackDrag(d.denom, e.clientX, e.clientY);
+        else onDrag(dx, Math.min(dy, 12));
       }}
       onPointerUp={(e) => end(e, false)}
       onPointerCancel={(e) => end(e, true)}
@@ -587,6 +667,7 @@ function StackButton({ d, count, dom, onAdd }: { d: Denom; count: number; dom: b
   return (
     <button
       className="my-stack"
+      data-stack={d.value}
       disabled={count === 0}
       onPointerDown={() => {
         stop();
@@ -619,6 +700,7 @@ function Tray({
   onRemove,
   label,
   dragPx,
+  dropping,
 }: {
   dom: boolean;
   tray: Chips;
@@ -629,12 +711,14 @@ function Tray({
   label: string | null;
   /** Flat-chip fallback only: how far the chips are being dragged. */
   dragPx: { x: number; y: number } | null;
+  /** A chip is being dragged over from a stack. */
+  dropping: boolean;
 }) {
   const amount = chipValue(tray);
   return (
-    <div ref={trayRef} className={`tray ${amount ? 'filled' : ''} ${canThrow ? '' : 'locked'}`}>
+    <div ref={trayRef} className={`tray ${amount ? 'filled' : ''} ${canThrow ? '' : 'locked'} ${dropping ? 'drop' : ''}`}>
       {amount === 0 ? (
-        <span className="muted small">Tap your chips to pick them up · hold to pick faster</span>
+        <span className="muted small">{dropping ? 'Drop the chip here' : 'Tap or drag your chips here · hold to pick faster'}</span>
       ) : (
         <>
           <div className="tray-chips" style={dragPx ? { transform: `translate(${dragPx.x}px, ${dragPx.y}px)`, transition: 'none' } : undefined}>
@@ -659,14 +743,89 @@ function Tray({
   );
 }
 
+/* ---------- rounds, roles and announcements ---------- */
+
+interface Notice {
+  id: number;
+  title: string;
+  sub?: string;
+  tone: 'hand' | 'street' | 'win';
+}
+let noticeId = 0;
+
+const STREETS = [
+  { key: 'preflop', label: 'Pre-flop', hint: 'Two cards each' },
+  { key: 'flop', label: 'Flop', hint: 'Deal 3 cards face up' },
+  { key: 'turn', label: 'Turn', hint: 'Deal the 4th card' },
+  { key: 'river', label: 'River', hint: 'Deal the 5th card' },
+  { key: 'showdown', label: 'Showdown', hint: 'Show your cards' },
+] as const;
+
+/** The five stages of a hand, with the current one lit up. */
+function StreetBar({ hand }: { hand: Hand | null }) {
+  const idx = hand ? STREETS.findIndex((s) => s.key === hand.street) : -1;
+  return (
+    <div className="street-wrap">
+      <ol className="streets" aria-label="Stage of the hand">
+        {STREETS.map((s, i) => (
+          <li key={s.key} className={i === idx ? 'now' : i < idx ? 'done' : ''} aria-current={i === idx ? 'step' : undefined}>
+            {s.label}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+const streetHint = (hand: Hand | null) => STREETS.find((s) => s.key === hand?.street)?.hint ?? 'Waiting for the next hand';
+
+/** Dealer button and blind markers for one player. */
+function Roles({ hand, id, long }: { hand: Hand | null; id: string; long?: boolean }) {
+  if (!hand || hand.street === 'open') return null;
+  return (
+    <span className="roles">
+      {hand.dealer === id && (
+        <span className="role dealer" title="Dealer">
+          {long ? 'Dealer' : 'D'}
+        </span>
+      )}
+      {hand.sb === id && (
+        <span className="role sb" title="Small blind">
+          {long ? 'Small blind' : 'SB'}
+        </span>
+      )}
+      {hand.bb === id && (
+        <span className="role bb" title="Big blind">
+          {long ? 'Big blind' : 'BB'}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** The "X wins $Y" lines from the hand that just finished. */
+function lastWins(log: string[]): string[] {
+  let start = -1;
+  log.forEach((l, i) => {
+    if (/^Hand \d+:/.test(l)) start = i;
+  });
+  return log.slice(start + 1).filter((l) => / (wins|split) /.test(l));
+}
+
 /* ---------- players ---------- */
+
+/** Everyone else, in seating order starting with the player who acts after `you`. */
+function seatedAfter(players: Player[], you: string): Player[] {
+  const i = players.findIndex((p) => p.id === you);
+  return i < 0 ? players : [...players.slice(i + 1), ...players.slice(0, i)];
+}
 
 function Players({ state, you, online }: { state: GameState; you: string; online: string[] }) {
   const h = state.hand;
   return (
     <div className="players">
-      {state.players
-        .filter((p) => p.id !== you && p.status !== 'out')
+      {seatedAfter(state.players, you)
+        .filter((p) => p.status !== 'out')
         .map((p) => {
           const folded = h?.folded.includes(p.id);
           const bet = h ? (h.street === 'open' ? h.contrib[p.id] : h.streetBet[p.id]) ?? 0 : 0;
@@ -675,7 +834,7 @@ function Players({ state, you, online }: { state: GameState; you: string; online
               <div className="pname">
                 <span className={`dot ${online.includes(p.id) ? 'on' : ''}`} />
                 {p.name}
-                {h?.dealer === p.id && <span className="dealer">D</span>}
+                <Roles hand={h} id={p.id} />
               </div>
               <div className="pline">
                 <span className="pstack">{p.status === 'waiting' ? 'waiting' : money(chipValue(p.chips))}</span>
@@ -773,9 +932,12 @@ function HostSheet({ state, room, onClose, openSettings }: { state: GameState; r
         <p className="muted small">
           New players join with code <b>{state.code}</b>, then appear here for chips.
         </p>
+        <p className="muted small">
+          Arrows change the seating order{h && state.settings.mode === 'strict' ? '; the new order applies from the next hand' : ''}.
+        </p>
         <ul className="list host-list">
-          {state.players.map((p) => (
-            <HostRow key={p.id} p={p} state={state} room={room} />
+          {state.players.map((p, i) => (
+            <HostRow key={p.id} p={p} index={i} state={state} room={room} />
           ))}
         </ul>
         {state.settings.mode === 'strict' && h?.toAct && (
@@ -801,13 +963,14 @@ function HostSheet({ state, room, onClose, openSettings }: { state: GameState; r
   );
 }
 
-function HostRow({ p, state, room }: { p: Player; state: GameState; room: Room }) {
+function HostRow({ p, index, state, room }: { p: Player; index: number; state: GameState; room: Room }) {
   const [amt, setAmt] = useState(p.rebuyRequest ?? state.settings.defaultBuyIn);
   useEffect(() => {
     if (p.rebuyRequest) setAmt(p.rebuyRequest);
   }, [p.rebuyRequest]);
   return (
     <li className={p.rebuyRequest || p.status === 'waiting' ? 'highlight' : ''}>
+      <SeatArrows state={state} room={room} index={index} />
       <div className="grow">
         <div>
           <b>{p.name}</b> <span className="muted small">{p.status === 'out' ? 'cashed out' : money(chipValue(p.chips))}</span>
