@@ -323,7 +323,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
   const rebuyCount = state.players.filter((p) => p.rebuyRequest || p.status === 'waiting').length;
 
   return (
-    <div className="table" ref={rootRef} style={{ '--n': denoms.length } as React.CSSProperties}>
+    <div className={`table ${strict && myTurn ? 'my-turn' : ''}`} ref={rootRef} style={{ '--n': denoms.length } as React.CSSProperties}>
       <canvas ref={canvasRef} className="scene" style={{ display: dom ? 'none' : undefined }} />
       <header className="table-top">
         <div>

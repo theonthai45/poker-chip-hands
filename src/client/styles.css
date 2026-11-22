@@ -152,6 +152,15 @@ input {
 .table::before {
   content: ''; position: absolute; inset: 7px; border: 1.5px solid rgba(255, 236, 170, 0.14); border-radius: 22px; pointer-events: none;
 }
+/* Your turn: a soft gold outline breathing just inside the rail. It sits under nothing and blocks nothing. */
+.table::after {
+  content: ''; position: absolute; inset: 0; border-radius: calc(34px - var(--rail)); pointer-events: none; z-index: 7; opacity: 0;
+  box-shadow: inset 0 0 0 2px rgba(242, 193, 78, 0.75), inset 0 0 26px 2px rgba(242, 193, 78, 0.28);
+  transition: opacity 0.4s;
+}
+.table.my-turn::after { animation: turn-pulse 2.2s ease-in-out infinite; }
+@keyframes turn-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
+@media (prefers-reduced-motion: reduce) { .table.my-turn::after { animation: none; opacity: 0.6; } }
 .table-top { display: flex; justify-content: space-between; align-items: center; padding: calc(10px + env(safe-area-inset-top)) 16px 6px; }
 .top-actions { display: flex; gap: 6px; align-items: center; flex: none; }
 .table-top > div:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -228,12 +237,12 @@ input {
 
 .felt { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 6px; padding: 0 16px; min-height: 0; overflow-y: auto; }
 .scene { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
-.pot { text-align: center; width: 100%; flex: 1; min-height: 118px; display: flex; flex-direction: column; }
+.pot { text-align: center; width: 100%; flex: 1; min-height: 96px; display: flex; flex-direction: column; }
 /* Between hands the empty pot folds away to make room for the summary. */
 .pot.idle { flex: none; min-height: 0; }
 .pot.idle .pile-area { flex: none; min-height: 0; height: 0; }
 .pot.idle .pot-counts, .pot.idle .pot-total { display: none; }
-.pile-area { flex: 1; min-height: 58px; max-height: 210px; display: flex; gap: 14px; justify-content: center; align-items: flex-end; }
+.pile-area { flex: 1; min-height: 38px; max-height: 210px; display: flex; gap: 14px; justify-content: center; align-items: flex-end; }
 .pot-counts { display: flex; gap: 14px; justify-content: center; font-size: 13px; font-weight: 600; min-height: 20px; position: relative; z-index: 6; }
 .pot-counts i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; border: 1px solid rgba(255, 255, 255, 0.5); vertical-align: -1px; }
 .stack-space { width: calc(var(--chip) * 2.45); height: calc(var(--chip) * 3.65); }
@@ -312,13 +321,22 @@ input {
 /* Short phones (small iPhones with the browser bars showing). */
 @media (max-height: 620px) and (orientation: portrait) {
   :root { --chip-base: 18px; }
-  .table-top { padding-bottom: 0; }
+  /* Your turn: a soft gold outline breathing just inside the rail. It sits under nothing and blocks nothing. */
+.table::after {
+  content: ''; position: absolute; inset: 0; border-radius: calc(34px - var(--rail)); pointer-events: none; z-index: 7; opacity: 0;
+  box-shadow: inset 0 0 0 2px rgba(242, 193, 78, 0.75), inset 0 0 26px 2px rgba(242, 193, 78, 0.28);
+  transition: opacity 0.4s;
+}
+.table.my-turn::after { animation: turn-pulse 2.2s ease-in-out infinite; }
+@keyframes turn-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
+@media (prefers-reduced-motion: reduce) { .table.my-turn::after { animation: none; opacity: 0.6; } }
+.table-top { padding-bottom: 0; }
   .players { padding: 4px 16px; }
   .player { padding: 5px 9px; }
   .felt { gap: 2px; }
-  .pot { min-height: 100px; }
+  .pot { min-height: 82px; }
   .pot-label { display: none; }
-  .pile-area { min-height: 40px; }
+  .pile-area { min-height: 28px; }
   .streets li { padding: 3px 0; }
   .announce-title { font-size: 24px; }
   .pot-total { font-size: 26px; }
@@ -328,12 +346,49 @@ input {
   .my-stack { padding: 0; gap: 1px; }
 }
 
+/* Large phones and unfolded foldables in portrait (about 600-700px wide). */
+@media (min-width: 590px) and (max-width: 699px) and (min-height: 700px) {
+  :root { --chip-base: 27px; --rail: 12px; }
+  .table { --hand-w: calc(min(100vw, 680px) - 76px); max-width: 680px; border-radius: 42px; font-size: 17px; }
+  .table::before { inset: 9px; border-radius: 28px; }
+  .table::after { border-radius: 30px; }
+  .table-top { padding: 14px 22px 6px; font-size: 18px; }
+  .table .btn { min-height: 52px; font-size: 17px; }
+  .table .btn.tiny { min-height: 36px; font-size: 14px; }
+  .table .btn.small { min-height: 42px; font-size: 15px; }
+  .players { padding: 6px 22px 12px; gap: 10px; }
+  .player { min-width: 118px; padding: 10px 12px; }
+  .pname { font-size: 16px; }
+  .pstack, .pbet { font-size: 14px; }
+  .felt { padding: 0 22px; gap: 8px; }
+  .streets li { font-size: 13px; padding: 7px 0; }
+  .pot-total { font-size: 44px; }
+  .pot-counts { font-size: 15px; }
+  .pile-area { max-height: 260px; }
+  .hand-zone { padding: 6px 22px 16px; gap: 10px; }
+  .swipe-zone { gap: 10px; }
+  .tray { min-height: 104px; }
+  .my-stack, .my-total { font-size: 16px; }
+  .my-total b { font-size: 21px; }
+  .announce-title { font-size: 36px; }
+}
+
 /* Tablets: a wider table with bigger chips and controls. */
 @media (min-width: 700px) and (min-height: 700px) {
   :root { --chip-base: 32px; --rail: 16px; }
   .table { --hand-w: calc(min(100vw, 820px) - 96px); max-width: 820px; max-height: 1240px; border-radius: 52px; font-size: 18px; }
   .table::before { inset: 12px; border-radius: 36px; }
-  .table-top { padding: 18px 28px 8px; font-size: 20px; }
+  .table::after { border-radius: 36px; }
+  /* Your turn: a soft gold outline breathing just inside the rail. It sits under nothing and blocks nothing. */
+.table::after {
+  content: ''; position: absolute; inset: 0; border-radius: calc(34px - var(--rail)); pointer-events: none; z-index: 7; opacity: 0;
+  box-shadow: inset 0 0 0 2px rgba(242, 193, 78, 0.75), inset 0 0 26px 2px rgba(242, 193, 78, 0.28);
+  transition: opacity 0.4s;
+}
+.table.my-turn::after { animation: turn-pulse 2.2s ease-in-out infinite; }
+@keyframes turn-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
+@media (prefers-reduced-motion: reduce) { .table.my-turn::after { animation: none; opacity: 0.6; } }
+.table-top { padding: 18px 28px 8px; font-size: 20px; }
   .table .small { font-size: 15px; }
   .table .btn { min-height: 58px; font-size: 18px; border-radius: 14px; }
   .table .btn.tiny { min-height: 40px; font-size: 15px; padding: 0 14px; }
@@ -372,7 +427,16 @@ input {
     grid-template-rows: auto auto minmax(0, 1fr);
     grid-template-areas: 'top top' 'players hand' 'felt hand';
   }
-  .table-top { grid-area: top; }
+  /* Your turn: a soft gold outline breathing just inside the rail. It sits under nothing and blocks nothing. */
+.table::after {
+  content: ''; position: absolute; inset: 0; border-radius: calc(34px - var(--rail)); pointer-events: none; z-index: 7; opacity: 0;
+  box-shadow: inset 0 0 0 2px rgba(242, 193, 78, 0.75), inset 0 0 26px 2px rgba(242, 193, 78, 0.28);
+  transition: opacity 0.4s;
+}
+.table.my-turn::after { animation: turn-pulse 2.2s ease-in-out infinite; }
+@keyframes turn-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
+@media (prefers-reduced-motion: reduce) { .table.my-turn::after { animation: none; opacity: 0.6; } }
+.table-top { grid-area: top; }
   .players { grid-area: players; }
   .felt { grid-area: felt; }
   .hand-zone, .notice { grid-area: hand; align-self: end; min-height: 0; max-height: 100%; overflow-y: auto; background: none; scrollbar-width: none; }
@@ -384,7 +448,17 @@ input {
   :root { --chip-base: 17px; --rail: 6px; }
   .table { border-radius: 26px; }
   .table::before { inset: 5px; border-radius: 18px; }
-  .table-top { padding: calc(4px + env(safe-area-inset-top)) 14px 0; }
+  .table::after { border-radius: 20px; }
+  /* Your turn: a soft gold outline breathing just inside the rail. It sits under nothing and blocks nothing. */
+.table::after {
+  content: ''; position: absolute; inset: 0; border-radius: calc(34px - var(--rail)); pointer-events: none; z-index: 7; opacity: 0;
+  box-shadow: inset 0 0 0 2px rgba(242, 193, 78, 0.75), inset 0 0 26px 2px rgba(242, 193, 78, 0.28);
+  transition: opacity 0.4s;
+}
+.table.my-turn::after { animation: turn-pulse 2.2s ease-in-out infinite; }
+@keyframes turn-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
+@media (prefers-reduced-motion: reduce) { .table.my-turn::after { animation: none; opacity: 0.6; } }
+.table-top { padding: calc(4px + env(safe-area-inset-top)) 14px 0; }
   .table .btn { min-height: 38px; }
   .table .btn.tiny { min-height: 28px; }
   .players { padding: 4px 14px 4px; }
