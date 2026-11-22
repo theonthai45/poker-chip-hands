@@ -7,6 +7,7 @@ import { HandGuide, InfoButton } from './HandGuide';
 import { MoneyInput, SeatArrows, SettingsSheet } from './Lobby';
 import type { ChipScene } from './scene';
 import { sfx } from './sound';
+import { useFold, type FoldPref } from './useFold';
 import type { useRoom } from './useRoom';
 
 type Room = ReturnType<typeof useRoom>;
@@ -112,7 +113,8 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
     const t = setTimeout(() => setNotices((n) => n.slice(1)), notices.length > 1 ? 1300 : 2200);
     return () => clearTimeout(t);
   }, [notices]);
-  const [sheet, setSheet] = useState<'host' | 'settings' | 'rebuy' | 'log' | 'hands' | null>(null);
+  const [sheet, setSheet] = useState<'host' | 'settings' | 'rebuy' | 'log' | 'hands' | 'prefs' | null>(null);
+  const fold = useFold();
   const potRef = useRef<HTMLDivElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -323,7 +325,7 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
   const rebuyCount = state.players.filter((p) => p.rebuyRequest || p.status === 'waiting').length;
 
   return (
-    <div className={`table ${strict && myTurn ? 'my-turn' : ''}`} ref={rootRef} style={{ '--n': denoms.length } as React.CSSProperties}>
+    <div className={`table ${strict && myTurn ? 'my-turn' : ''} ${fold.layout ? `fold-${fold.layout}` : ''}`} ref={rootRef} style={{ '--n': denoms.length } as React.CSSProperties}>
       <canvas ref={canvasRef} className="scene" style={{ display: dom ? 'none' : undefined }} />
       <header className="table-top">
         <div>
@@ -334,15 +336,8 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
           </span>
         </div>
         <div className="top-actions">
-          <button
-            className="btn tiny"
-            aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
-            onClick={() => {
-              sfx.setMuted(!muted);
-              setMuted(!muted);
-            }}
-          >
-            {muted ? '🔇' : '🔊'}
+          <button className="btn tiny" aria-label="Sound and display" onClick={() => setSheet('prefs')}>
+            {muted ? '🔇' : '⚙︎'}
           </button>
           <button className="btn tiny" onClick={() => setSheet('log')}>
             Scores
@@ -510,6 +505,63 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
       {sheet === 'settings' && <SettingsSheet state={state} room={room} onClose={() => setSheet(null)} />}
       {sheet === 'rebuy' && <RebuySheet state={state} me={me} room={room} onClose={() => setSheet(null)} />}
       {sheet === 'hands' && <HandGuide onClose={() => setSheet(null)} />}
+      {sheet === 'prefs' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Sound and display">
+            <div className="sheet-head">
+              <h2>Sound &amp; display</h2>
+              <button className="icon-btn" aria-label="Close" onClick={() => setSheet(null)}>
+                ✕
+              </button>
+            </div>
+            <div className="field">
+              <span>Sound</span>
+              <div className="seg">
+                {[false, true].map((m) => (
+                  <button
+                    key={String(m)}
+                    className={muted === m ? 'on' : ''}
+                    onClick={() => {
+                      sfx.setMuted(m);
+                      setMuted(m);
+                    }}
+                  >
+                    {m ? 'Off' : 'On'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="field">
+              <span>Folding phone layout</span>
+              <div className="seg seg4">
+                {(
+                  [
+                    ['auto', 'Auto'],
+                    ['off', 'Flat'],
+                    ['tabletop', 'Tabletop'],
+                    ['book', 'Book'],
+                  ] as [FoldPref, string][]
+                ).map(([k, label]) => (
+                  <button key={k} className={fold.pref === k ? 'on' : ''} onClick={() => fold.setPref(k)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <small className="muted">
+                {fold.pref === 'auto'
+                  ? fold.detected
+                    ? `Half-folded phone detected: using the ${fold.detected} layout.`
+                    : 'Auto switches when your browser reports a half-folded screen. If yours does not, pick a layout by hand.'
+                  : fold.pref === 'tabletop'
+                    ? 'Bottom half flat on the table: the pot is on the upright screen, your chips and buttons on the flat one. Flick chips up over the hinge.'
+                    : fold.pref === 'book'
+                      ? 'Held like a book: the table is on the left page, your chips and buttons on the right. Nothing sits on the fold.'
+                      : 'One continuous table, ignoring the fold.'}
+              </small>
+            </div>
+          </div>
+        </div>
+      )}
       {sheet === 'log' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
