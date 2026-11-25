@@ -31,7 +31,9 @@ export function Lobby({ room, state, you }: { room: Room; state: GameState; you:
 
   const { settings } = state;
   return (
-    <div className="screen">
+    <div className="screen lobby">
+      {/* Everything above the start button scrolls in its own area, so nothing hides behind it. */}
+      <div className="lobby-scroll">
       <header className="top">
         <div>
           <div className="muted small">Game code</div>
@@ -75,7 +77,7 @@ export function Lobby({ room, state, you }: { room: Room; state: GameState; you:
           <li key={p.id}>
             {isHost ? <SeatArrows state={state} room={room} index={i} /> : <span className="seat-no">{i + 1}</span>}
             <span className={`dot ${room.online.includes(p.id) ? 'on' : ''}`} />
-            <span className="grow">
+            <span className="grow pl-name">
               {p.name}
               {p.id === state.hostId && <span className="tag">host</span>}
               {p.id === you && <span className="tag">you</span>}
@@ -86,11 +88,16 @@ export function Lobby({ room, state, you }: { room: Room; state: GameState; you:
                   value={p.planned ?? settings.defaultBuyIn}
                   onCommit={(c) => room.send({ type: 'setPlanned', playerId: p.id, amount: c === settings.defaultBuyIn ? null : c })}
                 />
-                {p.id !== state.hostId && (
-                  <button className="icon-btn" aria-label={`Remove ${p.name}`} onClick={() => room.send({ type: 'kick', playerId: p.id })}>
-                    ✕
-                  </button>
-                )}
+                {/* Kept in the layout for the host's own row too, so the buy-in boxes line up. */}
+                <button
+                  className="icon-btn"
+                  aria-label={`Remove ${p.name}`}
+                  style={p.id === state.hostId ? { visibility: 'hidden' } : undefined}
+                  disabled={p.id === state.hostId}
+                  onClick={() => room.send({ type: 'kick', playerId: p.id })}
+                >
+                  ✕
+                </button>
               </>
             ) : (
               <span>{money(p.planned ?? settings.defaultBuyIn)}</span>
@@ -98,8 +105,9 @@ export function Lobby({ room, state, you }: { room: Room; state: GameState; you:
           </li>
         ))}
       </ul>
+      </div>
 
-      <div className="footer">
+      <div className="lobby-footer">
         {isHost ? (
           <button className="btn primary" disabled={state.players.length < 2} onClick={() => room.send({ type: 'startGame' })}>
             {state.players.length < 2 ? 'Waiting for players…' : 'Start game'}

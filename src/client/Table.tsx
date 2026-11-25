@@ -7,6 +7,7 @@ import { HandGuide, InfoButton } from './HandGuide';
 import { MoneyInput, SeatArrows, SettingsSheet } from './Lobby';
 import type { ChipScene } from './scene';
 import { sfx } from './sound';
+import { useFold, type FoldPref } from './useFold';
 import type { useRoom } from './useRoom';
 
 type Room = ReturnType<typeof useRoom>;
@@ -112,7 +113,8 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
     const t = setTimeout(() => setNotices((n) => n.slice(1)), notices.length > 1 ? 1300 : 2200);
     return () => clearTimeout(t);
   }, [notices]);
-  const [sheet, setSheet] = useState<'host' | 'settings' | 'rebuy' | 'log' | 'hands' | null>(null);
+  const [sheet, setSheet] = useState<'host' | 'settings' | 'rebuy' | 'log' | 'hands' | 'prefs' | null>(null);
+  const fold = useFold();
   const potRef = useRef<HTMLDivElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -323,7 +325,8 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
   const rebuyCount = state.players.filter((p) => p.rebuyRequest || p.status === 'waiting').length;
 
   return (
-    <div className="table" ref={rootRef} style={{ '--n': denoms.length } as React.CSSProperties}>
+    <div className={`table ${strict && myTurn ? 'my-turn' : ''} ${fold.layout ? `fold-${fold.layout}` : ''}`} ref={rootRef} style={{ '--n': denoms.length } as React.CSSProperties}>
+      {strict && myTurn && <div className="turn-glow" aria-hidden="true" />}
       <canvas ref={canvasRef} className="scene" style={{ display: dom ? 'none' : undefined }} />
       <header className="table-top">
         <div>
@@ -334,15 +337,8 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
           </span>
         </div>
         <div className="top-actions">
-          <button
-            className="btn tiny"
-            aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
-            onClick={() => {
-              sfx.setMuted(!muted);
-              setMuted(!muted);
-            }}
-          >
-            {muted ? '🔇' : '🔊'}
+          <button className="btn tiny" aria-label="Sound and display" onClick={() => setSheet('prefs')}>
+            {muted ? '🔇' : '⚙︎'}
           </button>
           <button className="btn tiny" onClick={() => setSheet('log')}>
             Scores
@@ -510,6 +506,63 @@ export function Table({ room, state, you }: { room: Room; state: GameState; you:
       {sheet === 'settings' && <SettingsSheet state={state} room={room} onClose={() => setSheet(null)} />}
       {sheet === 'rebuy' && <RebuySheet state={state} me={me} room={room} onClose={() => setSheet(null)} />}
       {sheet === 'hands' && <HandGuide onClose={() => setSheet(null)} />}
+      {sheet === 'prefs' && (
+        <div className="sheet-backdrop" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Sound and display">
+            <div className="sheet-head">
+              <h2>Sound &amp; display</h2>
+              <button className="icon-btn" aria-label="Close" onClick={() => setSheet(null)}>
+                ✕
+              </button>
+            </div>
+            <div className="field">
+              <span>Sound</span>
+              <div className="seg">
+                {[false, true].map((m) => (
+                  <button
+                    key={String(m)}
+                    className={muted === m ? 'on' : ''}
+                    onClick={() => {
+                      sfx.setMuted(m);
+                      setMuted(m);
+                    }}
+                  >
+                    {m ? 'Off' : 'On'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="field">
+              <span>Folding phone layout</span>
+              <div className="seg seg4">
+                {(
+                  [
+                    ['auto', 'Auto'],
+                    ['off', 'Flat'],
+                    ['tabletop', 'Tabletop'],
+                    ['book', 'Book'],
+                  ] as [FoldPref, string][]
+                ).map(([k, label]) => (
+                  <button key={k} className={fold.pref === k ? 'on' : ''} onClick={() => fold.setPref(k)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <small className="muted">
+                {fold.pref === 'auto'
+                  ? fold.detected
+                    ? `Half-folded phone detected: using the ${fold.detected} layout.`
+                    : 'Auto switches when your browser reports a half-folded screen. If yours does not, pick a layout by hand.'
+                  : fold.pref === 'tabletop'
+                    ? 'Bottom half flat on the table: the pot is on the upright screen, your chips and buttons on the flat one. Flick chips up over the hinge.'
+                    : fold.pref === 'book'
+                      ? 'Held like a book: the table is on the left page, your chips and buttons on the right. Nothing sits on the fold.'
+                      : 'One continuous table, ignoring the fold.'}
+              </small>
+            </div>
+          </div>
+        </div>
+      )}
       {sheet === 'log' && (
         <div className="sheet-backdrop" onClick={() => setSheet(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
@@ -822,27 +875,41 @@ function seatedAfter(players: Player[], you: string): Player[] {
 
 function Players({ state, you, online }: { state: GameState; you: string; online: string[] }) {
   const h = state.hand;
+  const strip = useRef<HTMLDivElement>(null);
+  // You first, then everyone else in the order they act after you.
+  const me = state.players.find((p) => p.id === you);
+  const shown = [...(me ? [me] : []), ...seatedAfter(state.players, you)].filter((p) => p.status !== 'out');
+  const toAct = h?.toAct ?? null;
+
+  // With a big table the strip scrolls sideways: keep whoever is acting in view.
+  useEffect(() => {
+    const box = strip.current;
+    const card = toAct && box?.querySelector<HTMLElement>(`[data-pid="${toAct}"]`);
+    if (!box || !card) return;
+    const left = card.offsetLeft - (box.clientWidth - card.offsetWidth) / 2;
+    box.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+  }, [toAct, shown.length]);
+
   return (
-    <div className="players">
-      {seatedAfter(state.players, you)
-        .filter((p) => p.status !== 'out')
-        .map((p) => {
-          const folded = h?.folded.includes(p.id);
-          const bet = h ? (h.street === 'open' ? h.contrib[p.id] : h.streetBet[p.id]) ?? 0 : 0;
-          return (
-            <div key={p.id} data-pid={p.id} className={`player ${h?.toAct === p.id ? 'turn' : ''} ${folded ? 'folded' : ''}`}>
-              <div className="pname">
-                <span className={`dot ${online.includes(p.id) ? 'on' : ''}`} />
-                {p.name}
-                <Roles hand={h} id={p.id} />
-              </div>
-              <div className="pline">
-                <span className="pstack">{p.status === 'waiting' ? 'waiting' : money(chipValue(p.chips))}</span>
-                <span className="pbet">{folded ? 'folded' : h?.allIn.includes(p.id) ? 'all-in' : bet ? `bet ${money(bet)}` : ''}</span>
-              </div>
+    <div className={`players ${shown.length > 4 ? 'many' : ''}`} ref={strip}>
+      {shown.map((p) => {
+        const folded = h?.folded.includes(p.id);
+        const bet = h ? (h.street === 'open' ? h.contrib[p.id] : h.streetBet[p.id]) ?? 0 : 0;
+        const mine = p.id === you;
+        return (
+          <div key={p.id} data-pid={p.id} className={`player ${mine ? 'me' : ''} ${toAct === p.id ? 'turn' : ''} ${folded ? 'folded' : ''}`}>
+            <div className="pname">
+              <span className={`dot ${online.includes(p.id) ? 'on' : ''}`} />
+              <span className="pname-text">{mine ? 'You' : p.name}</span>
+              <Roles hand={h} id={p.id} />
             </div>
-          );
-        })}
+            <div className="pline">
+              <span className="pstack">{p.status === 'waiting' ? 'waiting' : money(chipValue(p.chips))}</span>
+              <span className="pbet">{folded ? 'folded' : h?.allIn.includes(p.id) ? 'all-in' : bet ? `bet ${money(bet)}` : ''}</span>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -971,30 +1038,30 @@ function HostRow({ p, index, state, room }: { p: Player; index: number; state: G
   return (
     <li className={p.rebuyRequest || p.status === 'waiting' ? 'highlight' : ''}>
       <SeatArrows state={state} room={room} index={index} />
-      <div className="grow">
-        <div>
-          <b>{p.name}</b> <span className="muted small">{p.status === 'out' ? 'cashed out' : money(chipValue(p.chips))}</span>
-        </div>
+      <div className="host-info">
+        <div className="host-name">{p.name}</div>
         <div className="muted small">
-          Bought in {money(p.buyIn)}
+          {p.status === 'out' ? 'Cashed out' : p.status === 'waiting' ? 'New player' : money(chipValue(p.chips))} · in {money(p.buyIn)}
           {p.rebuyRequest ? ` · wants ${money(p.rebuyRequest)}` : ''}
-          {p.status === 'waiting' ? ' · new player' : ''}
         </div>
       </div>
-      <MoneyInput value={amt} onCommit={setAmt} />
-      <button className="btn small primary" onClick={() => room.send({ type: 'addChips', playerId: p.id, amount: amt })}>
-        {p.status === 'waiting' ? 'Seat' : 'Add'}
-      </button>
-      {p.status === 'active' && (
+      <div className="host-ctl">
+        <MoneyInput value={amt} onCommit={setAmt} />
+        <button className="btn small primary" onClick={() => room.send({ type: 'addChips', playerId: p.id, amount: amt })}>
+          {p.status === 'waiting' ? 'Seat' : 'Add'}
+        </button>
+        {/* Always present so the columns line up; hidden when there is nothing to cash out. */}
         <button
           className="icon-btn"
           aria-label={`Cash out ${p.name}`}
           title="Cash out"
+          disabled={p.status !== 'active'}
+          style={p.status !== 'active' ? { visibility: 'hidden' } : undefined}
           onClick={() => confirm(`Cash out ${p.name} with ${money(chipValue(p.chips))}?`) && room.send({ type: 'cashOut', playerId: p.id })}
         >
           ⏏
         </button>
-      )}
+      </div>
     </li>
   );
 }

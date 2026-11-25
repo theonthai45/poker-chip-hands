@@ -30,7 +30,7 @@ h1, h2, h3 { margin: 0 0 8px; }
 h3 { font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 16px; }
 a { color: inherit; }
 
-.screen { width: 100%; max-width: 520px; margin: 0 auto; padding: 16px 16px calc(96px + env(safe-area-inset-bottom)); min-height: 100%; }
+.screen { flex: none; width: 100%; max-width: 520px; margin: 0 auto; padding: 16px 16px calc(96px + env(safe-area-inset-bottom)); min-height: 100%; }
 .screen.center { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding-bottom: 16px; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
@@ -89,9 +89,22 @@ input {
 .tag { margin-left: 6px; font-size: 11px; padding: 1px 6px; border-radius: 8px; background: rgba(255, 255, 255, 0.12); color: var(--muted); }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #666; margin-right: 6px; flex: none; }
 .dot.on { background: #4cd964; }
-.footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, var(--bg) 30%); }
-.footer { pointer-events: none; }
-.footer > * { max-width: 488px; margin: 0 auto; pointer-events: auto; }
+/* Lobby: the list scrolls in its own area and the start button sits below it, never on top of it. */
+.screen.lobby { height: 100%; height: 100dvh; min-height: 0; padding: 0; display: flex; flex-direction: column; }
+.lobby-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: calc(16px + env(safe-area-inset-top)) 16px 16px; }
+.lobby-footer { flex: none; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); }
+.pl-name { overflow-wrap: anywhere; }
+.list li .money-input { flex: none; }
+.list li .icon-btn { flex: none; }
+
+/* Host panel rows: name on the left, controls in a fixed-width group on the right. */
+.host-list li { flex-wrap: wrap; row-gap: 4px; }
+.host-info { flex: 1 1 96px; min-width: 0; }
+.host-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.host-info .small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.host-ctl { flex: none; display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.host-ctl .money-input input { width: 62px; }
+.host-ctl .icon-btn { padding: 8px 6px; }
 
 /* settings sheet */
 .sheet-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
@@ -103,6 +116,8 @@ input {
 @keyframes up { from { transform: translateY(40px); opacity: 0; } }
 .seg { display: grid; grid-template-columns: 1fr 1fr; background: rgba(0, 0, 0, 0.3); border-radius: 12px; padding: 4px; }
 .seg button { min-height: 42px; border: 0; border-radius: 9px; background: none; color: var(--muted); font: inherit; font-weight: 600; }
+.seg.seg4 { grid-template-columns: repeat(4, 1fr); }
+.seg.seg4 button { font-size: 14px; padding: 0 2px; }
 .seg button.on { background: var(--gold); color: #2a1d00; }
 .denom-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .swatches { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -177,7 +192,27 @@ input {
 .mini-card.red { color: #c8242c; }
 .mini-card.dim { opacity: 0.4; }
 .tips { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
-.players { display: flex; gap: 8px; overflow-x: auto; padding: 6px 16px 10px; scrollbar-width: none; flex: none; }
+.players { display: flex; gap: 8px; overflow-x: auto; padding: 6px 16px 10px; scrollbar-width: none; flex: none; scroll-padding: 0 16px; -webkit-overflow-scrolling: touch; }
+.players::-webkit-scrollbar { display: none; }
+/* A full table: narrower cards so more seats are visible at once. */
+.players.many { gap: 6px; }
+.players.many .player { min-width: 78px; padding: 6px 8px; }
+.players.many .pname { font-size: 13px; }
+.players.many .pstack, .players.many .pbet { font-size: 12px; }
+.players.many .pline { gap: 5px; }
+.players.many .roles { margin-left: 4px; gap: 3px; }
+.players.many .role { height: 18px; min-width: 18px; padding: 0 5px; font-size: 10px; }
+.player.me { background: rgba(242, 193, 78, 0.14); border-color: rgba(242, 193, 78, 0.5); }
+.pname-text { max-width: 9ch; overflow: hidden; text-overflow: ellipsis; }
+
+/* Your turn: the edge of the screen glows and breathes. It is only a border, so it never covers the table. */
+.turn-glow {
+  position: fixed; inset: 0; pointer-events: none; z-index: 45;
+  box-shadow: inset 0 0 0 3px rgba(242, 193, 78, 0.9), inset 0 0 30px 8px rgba(242, 193, 78, 0.5);
+  animation: turn-glow 1.8s ease-in-out infinite;
+}
+@keyframes turn-glow { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .turn-glow { animation: none; opacity: 0.7; } }
 .player { flex: none; min-width: 92px; background: rgba(0, 0, 0, 0.36); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; transition: 0.2s; }
 .player.turn { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold), 0 0 18px rgba(242, 193, 78, 0.4); }
 .player.folded { opacity: 0.45; }
@@ -228,12 +263,12 @@ input {
 
 .felt { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 6px; padding: 0 16px; min-height: 0; overflow-y: auto; }
 .scene { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
-.pot { text-align: center; width: 100%; flex: 1; min-height: 118px; display: flex; flex-direction: column; }
+.pot { text-align: center; width: 100%; flex: 1; min-height: 96px; display: flex; flex-direction: column; }
 /* Between hands the empty pot folds away to make room for the summary. */
 .pot.idle { flex: none; min-height: 0; }
 .pot.idle .pile-area { flex: none; min-height: 0; height: 0; }
 .pot.idle .pot-counts, .pot.idle .pot-total { display: none; }
-.pile-area { flex: 1; min-height: 58px; max-height: 210px; display: flex; gap: 14px; justify-content: center; align-items: flex-end; }
+.pile-area { flex: 1; min-height: 38px; max-height: 210px; display: flex; gap: 14px; justify-content: center; align-items: flex-end; }
 .pot-counts { display: flex; gap: 14px; justify-content: center; font-size: 13px; font-weight: 600; min-height: 20px; position: relative; z-index: 6; }
 .pot-counts i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; border: 1px solid rgba(255, 255, 255, 0.5); vertical-align: -1px; }
 .stack-space { width: calc(var(--chip) * 2.45); height: calc(var(--chip) * 3.65); }
@@ -316,9 +351,9 @@ input {
   .players { padding: 4px 16px; }
   .player { padding: 5px 9px; }
   .felt { gap: 2px; }
-  .pot { min-height: 100px; }
+  .pot { min-height: 82px; }
   .pot-label { display: none; }
-  .pile-area { min-height: 40px; }
+  .pile-area { min-height: 28px; }
   .streets li { padding: 3px 0; }
   .announce-title { font-size: 24px; }
   .pot-total { font-size: 26px; }
@@ -326,6 +361,32 @@ input {
   .tray { min-height: 70px; padding: 3px 10px; }
   .hand-zone, .swipe-zone { gap: 5px; }
   .my-stack { padding: 0; gap: 1px; }
+}
+
+/* Large phones and unfolded foldables in portrait (about 600-700px wide). */
+@media (min-width: 590px) and (max-width: 699px) and (min-height: 700px) {
+  :root { --chip-base: 27px; --rail: 12px; }
+  .table { --hand-w: calc(min(100vw, 680px) - 76px); max-width: 680px; border-radius: 42px; font-size: 17px; }
+  .table::before { inset: 9px; border-radius: 28px; }
+  .table-top { padding: 14px 22px 6px; font-size: 18px; }
+  .table .btn { min-height: 52px; font-size: 17px; }
+  .table .btn.tiny { min-height: 36px; font-size: 14px; }
+  .table .btn.small { min-height: 42px; font-size: 15px; }
+  .players { padding: 6px 22px 12px; gap: 10px; }
+  .player { min-width: 118px; padding: 10px 12px; }
+  .pname { font-size: 16px; }
+  .pstack, .pbet { font-size: 14px; }
+  .felt { padding: 0 22px; gap: 8px; }
+  .streets li { font-size: 13px; padding: 7px 0; }
+  .pot-total { font-size: 44px; }
+  .pot-counts { font-size: 15px; }
+  .pile-area { max-height: 260px; }
+  .hand-zone { padding: 6px 22px 16px; gap: 10px; }
+  .swipe-zone { gap: 10px; }
+  .tray { min-height: 104px; }
+  .my-stack, .my-total { font-size: 16px; }
+  .my-total b { font-size: 21px; }
+  .announce-title { font-size: 36px; }
 }
 
 /* Tablets: a wider table with bigger chips and controls. */
@@ -409,3 +470,97 @@ input {
   .my-total b { font-size: 15px; }
   .sheet { max-height: 96vh; }
 }
+
+/* ---------- half-folded phones ----------
+   The classes are set from the Viewport Segments API when the browser reports a fold, or by hand
+   in Sound & display. The env() values give the exact fold edges; without them the split is the middle. */
+
+/* Tabletop: halves stacked, bottom half lying flat. Watch on the upright half, play on the flat half. */
+.table.fold-tabletop {
+  --fold-a: env(viewport-segment-bottom 0 0, 50dvh);
+  --fold-b: env(viewport-segment-top 0 1, 50dvh);
+  --chip-base: 22px;
+  --hand-w: calc(100vw - 56px);
+  max-width: none; max-height: none; height: 100dvh; margin: 0; border-radius: 26px;
+  display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 0;
+  /* Rows above the fold end 10px short of it; the hand row starts 10px past it. */
+  grid-template-rows: auto auto minmax(0, 1fr) calc(var(--fold-b) - var(--fold-a) + 20px) calc(100dvh - var(--fold-b) - var(--rail) - 10px);
+  grid-template-areas: 'top' 'players' 'felt' 'fold' 'hand';
+}
+.table.fold-tabletop .table-top { grid-area: top; padding-bottom: 2px; }
+.table.fold-tabletop .players { grid-area: players; padding-bottom: 4px; }
+.table.fold-tabletop .felt { grid-area: felt; gap: 3px; }
+.table.fold-tabletop .hand-zone,
+.table.fold-tabletop .notice { grid-area: hand; align-self: stretch; max-height: none; min-height: 0; background: none; justify-content: space-evenly; padding-top: 0; overflow: hidden; }
+.table.fold-tabletop .pot { min-height: 0; }
+.table.fold-tabletop .pot-label { display: none; }
+.table.fold-tabletop .pile-area { min-height: 34px; }
+.table.fold-tabletop .announce { top: calc(var(--fold-a) * 0.55); }
+/* The fold itself: a faint crease line so it is clear where to flick across. */
+.table.fold-tabletop .felt::after {
+  content: ''; position: absolute; left: 14px; right: 14px; top: calc((var(--fold-a) + var(--fold-b)) / 2 - var(--rail));
+  border-top: 1px dashed rgba(255, 236, 170, 0.22); pointer-events: none;
+}
+/* Short halves (a book-style phone turned on its side): tighten the upright half. */
+@media (max-height: 760px) {
+  .table.fold-tabletop { --chip-base: 18px; --rail: 6px; }
+  .table.fold-tabletop .table-top { padding-top: calc(4px + env(safe-area-inset-top)); }
+  .table.fold-tabletop .player { padding: 4px 9px; }
+  .table.fold-tabletop .streets li { padding: 2px 0; }
+  .table.fold-tabletop .pot-total { font-size: 26px; }
+  .table.fold-tabletop .btn { min-height: 40px; }
+  .table.fold-tabletop .btn.tiny { min-height: 28px; }
+  .table.fold-tabletop .tray { min-height: 66px; padding: 2px 10px; }
+  .table.fold-tabletop .my-stack { padding: 0; gap: 0; font-size: 13px; }
+  .table.fold-tabletop .hand-zone { gap: 4px; padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
+  .table.fold-tabletop .swipe-zone { gap: 4px; }
+  .table.fold-tabletop .announce { padding: 8px 18px; }
+  .table.fold-tabletop .announce-title { font-size: 22px; }
+}
+/* Wide flat half: buttons on the left, chips on the right, so both thumbs have a job. */
+@media (min-width: 700px) {
+  .table.fold-tabletop { --hand-w: calc(54vw - 60px); }
+  .table.fold-tabletop .hand-zone {
+    display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); column-gap: 18px; align-content: center;
+    grid-template-areas: 'actions swipe' 'quick swipe' 'total swipe';
+  }
+  .table.fold-tabletop .actions { grid-area: actions; }
+  .table.fold-tabletop .quick { grid-area: quick; }
+  .table.fold-tabletop .my-total { grid-area: total; }
+  .table.fold-tabletop .swipe-zone { grid-area: swipe; }
+}
+
+/* Book: halves side by side. Table on the left page, your chips and buttons on the right page. */
+.table.fold-book {
+  --fold-l: env(viewport-segment-right 0 0, 50vw);
+  --fold-r: env(viewport-segment-left 1 0, 50vw);
+  --chip-base: 20px;
+  --hand-w: calc(100vw - var(--fold-r) - 44px);
+  max-width: none; max-height: none; height: 100dvh; margin: 0; font-size: 16px;
+  display: grid; grid-template-rows: auto auto minmax(0, 1fr);
+  /* Left page stops 14px before the fold; the right page starts 14px after it. */
+  grid-template-columns: calc(var(--fold-l) - var(--rail) - 14px) minmax(0, 1fr);
+  column-gap: calc(var(--fold-r) - var(--fold-l) + 28px);
+  grid-template-areas: 'top top' 'players hand' 'felt hand';
+}
+.table.fold-book .table-top { grid-area: top; padding: calc(10px + env(safe-area-inset-top)) 16px 6px; font-size: 16px; }
+.table.fold-book .players { grid-area: players; padding: 6px 0 8px 16px; flex-wrap: wrap; overflow: visible; }
+.table.fold-book .player { min-width: 0; flex: 1 1 40%; padding: 8px 10px; }
+.table.fold-book .pname { font-size: 14px; }
+.table.fold-book .pstack, .table.fold-book .pbet { font-size: 13px; }
+.table.fold-book .felt { grid-area: felt; padding: 0 0 12px 16px; gap: 6px; }
+.table.fold-book .streets li { font-size: 10px; padding: 5px 0; }
+.table.fold-book .streets li.done::before { content: ''; }
+.table.fold-book .pot-total { font-size: 34px; }
+.table.fold-book .hand-zone,
+.table.fold-book .notice { grid-area: hand; align-self: center; min-height: 0; max-height: 100%; background: none; padding: 0 16px 12px 0; gap: 10px; overflow: hidden; }
+.table.fold-book .btn { min-height: 48px; font-size: 16px; }
+.table.fold-book .btn.tiny { min-height: 32px; font-size: 13px; padding: 0 10px; }
+.table.fold-book .tray { min-height: 96px; }
+.table.fold-book .actions .btn { padding: 0 6px; white-space: nowrap; font-size: 15px; }
+.table.fold-book .quick { gap: 4px; }
+.table.fold-book .quick .btn { padding: 0 7px; white-space: nowrap; font-size: 12px; }
+.table.fold-book .my-stack, .table.fold-book .my-total { font-size: 14px; }
+.table.fold-book .announce { left: calc(var(--fold-l) / 2); max-width: calc(var(--fold-l) - 40px); padding: 12px 16px; }
+.table.fold-book .announce-title { font-size: 24px; }
+.table.fold-book .between { padding: 10px; }
