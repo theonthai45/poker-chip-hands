@@ -30,7 +30,7 @@ h1, h2, h3 { margin: 0 0 8px; }
 h3 { font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 16px; }
 a { color: inherit; }
 
-.screen { width: 100%; max-width: 520px; margin: 0 auto; padding: 16px 16px calc(96px + env(safe-area-inset-bottom)); min-height: 100%; }
+.screen { flex: none; width: 100%; max-width: 520px; margin: 0 auto; padding: 16px 16px calc(96px + env(safe-area-inset-bottom)); min-height: 100%; }
 .screen.center { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding-bottom: 16px; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
@@ -89,9 +89,22 @@ input {
 .tag { margin-left: 6px; font-size: 11px; padding: 1px 6px; border-radius: 8px; background: rgba(255, 255, 255, 0.12); color: var(--muted); }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #666; margin-right: 6px; flex: none; }
 .dot.on { background: #4cd964; }
-.footer { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, var(--bg) 30%); }
-.footer { pointer-events: none; }
-.footer > * { max-width: 488px; margin: 0 auto; pointer-events: auto; }
+/* Lobby: the list scrolls in its own area and the start button sits below it, never on top of it. */
+.screen.lobby { height: 100%; height: 100dvh; min-height: 0; padding: 0; display: flex; flex-direction: column; }
+.lobby-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: calc(16px + env(safe-area-inset-top)) 16px 16px; }
+.lobby-footer { flex: none; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); }
+.pl-name { overflow-wrap: anywhere; }
+.list li .money-input { flex: none; }
+.list li .icon-btn { flex: none; }
+
+/* Host panel rows: name on the left, controls in a fixed-width group on the right. */
+.host-list li { flex-wrap: wrap; row-gap: 4px; }
+.host-info { flex: 1 1 96px; min-width: 0; }
+.host-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.host-info .small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.host-ctl { flex: none; display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.host-ctl .money-input input { width: 62px; }
+.host-ctl .icon-btn { padding: 8px 6px; }
 
 /* settings sheet */
 .sheet-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); z-index: 50; display: flex; align-items: flex-end; justify-content: center; }
@@ -154,15 +167,6 @@ input {
 .table::before {
   content: ''; position: absolute; inset: 7px; border: 1.5px solid rgba(255, 236, 170, 0.14); border-radius: 22px; pointer-events: none;
 }
-/* Your turn: a soft gold outline breathing just inside the rail. It sits under nothing and blocks nothing. */
-.table::after {
-  content: ''; position: absolute; inset: 0; border-radius: calc(34px - var(--rail)); pointer-events: none; z-index: 7; opacity: 0;
-  box-shadow: inset 0 0 0 2px rgba(242, 193, 78, 0.75), inset 0 0 26px 2px rgba(242, 193, 78, 0.28);
-  transition: opacity 0.4s;
-}
-.table.my-turn::after { animation: turn-pulse 2.2s ease-in-out infinite; }
-@keyframes turn-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
-@media (prefers-reduced-motion: reduce) { .table.my-turn::after { animation: none; opacity: 0.6; } }
 .table-top { display: flex; justify-content: space-between; align-items: center; padding: calc(10px + env(safe-area-inset-top)) 16px 6px; }
 .top-actions { display: flex; gap: 6px; align-items: center; flex: none; }
 .table-top > div:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -188,7 +192,27 @@ input {
 .mini-card.red { color: #c8242c; }
 .mini-card.dim { opacity: 0.4; }
 .tips { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
-.players { display: flex; gap: 8px; overflow-x: auto; padding: 6px 16px 10px; scrollbar-width: none; flex: none; }
+.players { display: flex; gap: 8px; overflow-x: auto; padding: 6px 16px 10px; scrollbar-width: none; flex: none; scroll-padding: 0 16px; -webkit-overflow-scrolling: touch; }
+.players::-webkit-scrollbar { display: none; }
+/* A full table: narrower cards so more seats are visible at once. */
+.players.many { gap: 6px; }
+.players.many .player { min-width: 78px; padding: 6px 8px; }
+.players.many .pname { font-size: 13px; }
+.players.many .pstack, .players.many .pbet { font-size: 12px; }
+.players.many .pline { gap: 5px; }
+.players.many .roles { margin-left: 4px; gap: 3px; }
+.players.many .role { height: 18px; min-width: 18px; padding: 0 5px; font-size: 10px; }
+.player.me { background: rgba(242, 193, 78, 0.14); border-color: rgba(242, 193, 78, 0.5); }
+.pname-text { max-width: 9ch; overflow: hidden; text-overflow: ellipsis; }
+
+/* Your turn: the edge of the screen glows and breathes. It is only a border, so it never covers the table. */
+.turn-glow {
+  position: fixed; inset: 0; pointer-events: none; z-index: 45;
+  box-shadow: inset 0 0 0 3px rgba(242, 193, 78, 0.9), inset 0 0 30px 8px rgba(242, 193, 78, 0.5);
+  animation: turn-glow 1.8s ease-in-out infinite;
+}
+@keyframes turn-glow { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .turn-glow { animation: none; opacity: 0.7; } }
 .player { flex: none; min-width: 92px; background: rgba(0, 0, 0, 0.36); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; transition: 0.2s; }
 .player.turn { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold), 0 0 18px rgba(242, 193, 78, 0.4); }
 .player.folded { opacity: 0.45; }
@@ -344,7 +368,6 @@ input {
   :root { --chip-base: 27px; --rail: 12px; }
   .table { --hand-w: calc(min(100vw, 680px) - 76px); max-width: 680px; border-radius: 42px; font-size: 17px; }
   .table::before { inset: 9px; border-radius: 28px; }
-  .table::after { border-radius: 30px; }
   .table-top { padding: 14px 22px 6px; font-size: 18px; }
   .table .btn { min-height: 52px; font-size: 17px; }
   .table .btn.tiny { min-height: 36px; font-size: 14px; }
@@ -371,7 +394,6 @@ input {
   :root { --chip-base: 32px; --rail: 16px; }
   .table { --hand-w: calc(min(100vw, 820px) - 96px); max-width: 820px; max-height: 1240px; border-radius: 52px; font-size: 18px; }
   .table::before { inset: 12px; border-radius: 36px; }
-  .table::after { border-radius: 36px; }
   .table-top { padding: 18px 28px 8px; font-size: 20px; }
   .table .small { font-size: 15px; }
   .table .btn { min-height: 58px; font-size: 18px; border-radius: 14px; }
@@ -423,7 +445,6 @@ input {
   :root { --chip-base: 17px; --rail: 6px; }
   .table { border-radius: 26px; }
   .table::before { inset: 5px; border-radius: 18px; }
-  .table::after { border-radius: 20px; }
   .table-top { padding: calc(4px + env(safe-area-inset-top)) 14px 0; }
   .table .btn { min-height: 38px; }
   .table .btn.tiny { min-height: 28px; }
